@@ -80,7 +80,7 @@ async function read(days, months, db, env) {
       ...months.map(m => ['PFCOUNT', `stats:visitors:${m}`]),
       // Active now: distinct visits in this five-minute window and the last one (5 to 10 minutes)
       ['PFCOUNT', onlineKey(new Date()), onlineKey(new Date(), 1)],
-    ]), { env }),
+    ], { env }),
   ]);
   const afterFunnel = DAYS + 1 + FUNNEL_DAYS * STAGES.length;
 

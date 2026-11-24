@@ -20,6 +20,7 @@ test('adds RETURNING for D1-style change counts without changing existing RETURN
   assert.match(db.prepare('UPDATE profiles SET hidden = 1 WHERE id = ?').queryText, /RETURNING 1 AS __d1_change$/);
   assert.equal(db.prepare('DELETE FROM challenges WHERE id = ? RETURNING kind').queryText, 'DELETE FROM challenges WHERE id = ? RETURNING kind');
   assert.equal(db.prepare('SELECT * FROM profiles WHERE id = ?').queryText, 'SELECT * FROM profiles WHERE id = ?');
+  assert.throws(() => db.prepare('SELECT * FROM profiles WHERE id = ?').asTransactionQuery(makeMockSql()), /placeholder count/);
 });
 
 function makeMockSql() {
