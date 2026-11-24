@@ -6,48 +6,13 @@ import subtitles from './api/subtitles.js';
 import tmdb from './api/tmdb.js';
 import tv from './api/tv.js';
 import halloween from './api/halloween.js';
-import { GET as stats } from './api/stats.js';
 import { handle as mcp } from './api/mcp.js';
-import { handle as community } from './api/community.js';
 import { handle as admin } from './api/admin.js';
-import { createNeonDatabase } from './api/_neon-db.js';
-import * as webauthn from '@simplewebauthn/server';
-import { redis } from './api/_redis.js';
-import { isForbidden, isMature } from './src/services/policy.js';
+import { isForbidden } from './src/services/policy.js';
 import { route } from './api/_routes.js';
 import { getChannel, getProfile, isListed, movedHandle, ID } from './api/_community.js';
 import { HANDLE } from './src/services/handle.js';
 import posterIndex from './public/poster-index.json' with { type: 'json' };
-
-const months = (now = new Date()) => [0, 1].map(back => new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - back, 1)).toISOString().slice(0, 7));
-async function redisMinutes(members, env) {
-  if (!members.length) return {};
-  const scores = await redis(months().map(m => ['ZMSCORE', `stats:channel-minutes:${m}`, ...members]), { readOnly: true, env }).catch(() => []);
-  return Object.fromEntries(members.map((m, i) => [m, scores.reduce((sum, list) => sum + (Number(list?.[i]) || 0), 0)]));
-}
-// A film's verdict is remembered for this instance; a lookup that failed (slow, down, no
-// record) is not, so it is asked again later
-const verdicts = new Map();
-async function archiveFlag(film) {
-  if (verdicts.has(film)) return verdicts.get(film);
-  const meta = await fetch(`https://archive.org/metadata/${encodeURIComponent(film)}/metadata`, { signal: AbortSignal.timeout(5000) }).then(r => (r.ok ? r.json() : null)).catch(() => null);
-  if (!meta?.result) return true;
-  const verdict = isForbidden(meta.result) ? 'forbidden' : isMature(meta.result);
-  if (verdicts.size > 2000) verdicts.clear(); // ponytail: a whole reset, as in api/_tv.js
-  verdicts.set(film, verdict);
-  return verdict;
-}
-
-// Whether a Turnstile token from the feedback form is real, unused and from our widget
-async function passedTurnstile(secret, token, ip) {
-  if (!secret || typeof token !== 'string' || !token || token.length > 2048) return false;
-  const form = new FormData();
-  form.set('secret', secret);
-  form.set('response', token);
-  if (ip) form.set('remoteip', ip);
-  const result = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', { method: 'POST', body: form, signal: AbortSignal.timeout(5000) }).then(r => r.json()).catch(() => null);
-  return result?.success === true;
-}
 
 // The handlers written for (req, res), run with a web Request and answered with a Response
 const node = (handler) => async (request, query, env) => {
@@ -65,8 +30,6 @@ const node = (handler) => async (request, query, env) => {
   return new Response(request.method === 'HEAD' ? null : body, { status, headers });
 };
 
-const web = (handler, method) => (request, query, env) => (request.method === method ? handler(request, env) : new Response(null, { status: 405 }));
-
 const API = {
   'archive-list': node(archiveList),
   sitemap: node(sitemap),
@@ -75,9 +38,9 @@ const API = {
   tv: node(tv),
   halloween: node(halloween),
   event: () => Response.json({ error: 'Event analytics are disabled; Redis is reserved for movie caching.' }, { status: 503 }),
-  stats: (request, query, env, db) => request.method === 'GET' ? stats(request, { ...env, DB: db }) : new Response(null, { status: 405 }),
+  stats: () => Response.json({ error: 'Stats are disabled; Neon is reserved for the movie catalogue.' }, { status: 503 }),
   mcp: (request) => mcp(request),
-  community: (request, query, env, db) => community(request, { db, flag: archiveFlag, minutes: members => redisMinutes(members, env), webauthn, netSalt: env.NET_SALT, now: Date.now(), human: (token, ip) => passedTurnstile(env.TURNSTILE_SECRET, token, ip) }),
+  community: () => Response.json({ error: 'Community features are disabled; Neon is reserved for the movie catalogue.' }, { status: 503 }),
   admin,
 };
 
@@ -126,7 +89,7 @@ async function sharePage(request, env, db, kind, id) {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
-    const db = env.DATABASE_URL ? createNeonDatabase(env) : null;
+    const db = null;
     const share = ['GET', 'HEAD'].includes(request.method) && url.pathname.match(/^\/(c|u)\/([a-z0-9_-]+)\/?$/);
     if (share && (ID.test(share[2]) || (share[1] === 'u' && HANDLE.test(share[2])))) return sharePage(request, env, db, share[1], share[2]);
     // Handles are lower case; /u/Night-Owl goes to /u/night-owl
@@ -135,7 +98,7 @@ export default {
     if (/^\/[cu]\//.test(url.pathname)) return env.ASSETS.fetch(request);
     const found = route(url.pathname);
     if (!found) return new Response('Not found', { status: 404 });
-    if (['community', 'stats'].includes(found.name) && !db) return new Response('Database not configured. Set DATABASE_URL on this Worker.', { status: 503 });
+    if (['community', 'stats'].includes(found.name)) return API[found.name](request, {}, env, null);
     const query = { ...Object.fromEntries(url.searchParams), ...found.query };
     // Answers marked s-maxage are kept in Cloudflare's cache for that long, as Vercel's CDN did
     const cacheable = request.method === 'GET' && found.name !== 'stats' && found.name !== 'admin' && (found.name !== 'community' || url.pathname === '/api/channels');
