@@ -1,54 +1,156 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { AlertCircle, CheckCircle2, Clapperboard, ExternalLink, Eye, EyeOff, Film, LoaderCircle, LogOut, Pencil, Save, Upload } from 'lucide-react';
+import {
+  AlertCircle, CheckCircle2, Clapperboard, ExternalLink, Eye, EyeOff,
+  Film, LoaderCircle, LogOut, Pencil, Plus, RefreshCw, Search, Trash2,
+} from 'lucide-react';
 
-const EMPTY = { title: '', description: '', year: '', genre: '', posterUrl: '' };
-const humanSize = n => n < 1048576 ? Math.round(n / 1024) + ' KB' : (n / 1048576).toFixed(1) + ' MB';
+const EMPTY_EDIT = { title: '', description: '', year: '', genre: '', poster_url: '' };
+const prettySize = value => {
+  const size = Number(value) || 0;
+  if (!size) return 'Size not listed';
+  if (size < 1024 * 1024) return Math.round(size / 1024) + ' KB';
+  if (size < 1024 * 1024 * 1024) return (size / (1024 * 1024)).toFixed(1) + ' MB';
+  return (size / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+};
 async function readResponse(response) {
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.error || 'Request failed (' + response.status + ')');
   return data;
 }
+
 function Login({ onLogin }) {
-  const [password, setPassword] = useState(''), [busy, setBusy] = useState(false), [error, setError] = useState('');
-  async function submit(e) {
-    e.preventDefault(); setBusy(true); setError('');
+  const [password, setPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  async function submit(event) {
+    event.preventDefault();
+    setBusy(true);
+    setError('');
     try {
-      await readResponse(await fetch('/api/admin/session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) }));
+      await readResponse(await fetch('/api/admin/session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password }),
+      }));
       onLogin();
-    } catch (err) { setError(err.message); } finally { setBusy(false); }
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
   }
-  return <div className="min-h-screen bg-ink text-bone flex items-center justify-center p-5"><form onSubmit={submit} className="panel w-full max-w-md p-8">
-    <div className="w-12 h-12 rounded-xl bg-signal text-ink flex items-center justify-center mb-7"><Clapperboard size={25} /></div>
-    <p className="eyebrow mb-3">Orphaned Films · Private area</p><h1 className="display text-4xl">Admin sign in</h1><p className="text-muted text-sm mt-3">Sign in to manage your video library.</p>
-    <label htmlFor="admin-password" className="label block mt-8 mb-2">Admin password</label><input id="admin-password" type="password" autoComplete="current-password" autoFocus required value={password} onChange={e => setPassword(e.target.value)} className="w-full h-11 bg-ink border border-line rounded-lg px-3 text-bone" />
-    {error && <p role="alert" className="text-red-300 text-sm mt-3">{error}</p>}<button className="btn-primary w-full mt-6" disabled={busy}>{busy ? <LoaderCircle size={16} className="animate-spin" /> : <Clapperboard size={16} />}Enter dashboard</button>
-    <a href="/" className="block text-center text-muted hover:text-bone text-xs mt-6">← Back to website</a>
-  </form></div>;
+  return <div className="min-h-screen bg-ink text-bone flex items-center justify-center p-5">
+    <form onSubmit={submit} className="panel w-full max-w-md p-8">
+      <div className="w-12 h-12 rounded-xl bg-signal text-ink flex items-center justify-center mb-7"><Clapperboard size={25} /></div>
+      <p className="eyebrow mb-3">Orphaned Films · Private area</p>
+      <h1 className="display text-4xl">Admin sign in</h1>
+      <p className="text-muted text-sm mt-3">Curate Archive.org videos for the website.</p>
+      <label htmlFor="admin-password" className="label block mt-8 mb-2">Admin password</label>
+      <input id="admin-password" type="password" autoComplete="current-password" autoFocus required
+        value={password} onChange={event => setPassword(event.target.value)}
+        className="w-full h-11 bg-ink border border-line rounded-lg px-3 text-bone" />
+      {error && <p role="alert" className="text-red-300 text-sm mt-3">{error}</p>}
+      <button className="btn-primary w-full mt-6" disabled={busy}>
+        {busy ? <LoaderCircle size={16} className="animate-spin" /> : <Clapperboard size={16} />}
+        Enter dashboard
+      </button>
+      <a href="/" className="block text-center text-muted hover:text-bone text-xs mt-6">← Back to website</a>
+    </form>
+  </div>;
 }
-function EditVideo({ video, onSaved }) {
-  const [open, setOpen] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState('');
-  const [draft, setDraft] = useState({});
-  function start() { setDraft({ title: video.title, description: video.description || '', year: video.year || '', genre: video.genre || '', poster_url: video.poster_url || '' }); setError(''); setOpen(true); }
-  async function save(e) {
-    e.preventDefault(); setBusy(true); setError('');
+
+function EditListing({ video, onSave, onPublish, onRemove }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(EMPTY_EDIT);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  function beginEdit() {
+    setDraft({
+      title: video.title,
+      description: video.description || '',
+      year: video.year || '',
+      genre: video.genre || '',
+      poster_url: video.poster_url || '',
+    });
+    setError('');
+    setEditing(true);
+  }
+  async function save(event) {
+    event.preventDefault();
+    setBusy(true);
+    setError('');
     try {
-      await readResponse(await fetch('/api/admin/videos/' + video.id, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(draft) }));
-      setOpen(false); await onSaved();
-    } catch (err) { setError(err.message); } finally { setBusy(false); }
+      await onSave(video.id, draft);
+      setEditing(false);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
   }
-  if (!open) return <button onClick={start} className="btn-ghost h-9 px-3 text-[10px]"><Pencil size={13} /> Edit details</button>;
-  return <form onSubmit={save} className="border-t border-line bg-ink/60 p-4 space-y-3">
-    <p className="eyebrow">Edit video details</p><input required aria-label="Title" value={draft.title} onChange={e => setDraft({ ...draft, title: e.target.value })} placeholder="Title" className="admin-input" />
-    <textarea aria-label="Description" rows={3} value={draft.description} onChange={e => setDraft({ ...draft, description: e.target.value })} placeholder="Description" className="admin-input rounded-lg py-3" />
-    <div className="grid grid-cols-2 gap-3"><input aria-label="Year" value={draft.year} onChange={e => setDraft({ ...draft, year: e.target.value })} placeholder="Year" className="admin-input" /><input aria-label="Genre" value={draft.genre} onChange={e => setDraft({ ...draft, genre: e.target.value })} placeholder="Genre" className="admin-input" /></div>
-    <input aria-label="Poster URL" value={draft.poster_url} onChange={e => setDraft({ ...draft, poster_url: e.target.value })} placeholder="Poster HTTPS URL" className="admin-input" />
-    {error && <p className="text-red-300 text-sm">{error}</p>}<div className="flex gap-2"><button disabled={busy} className="btn-primary h-9 px-4 text-[10px]"><Save size={13} />{busy ? 'Saving…' : 'Save'}</button><button type="button" onClick={() => setOpen(false)} className="btn-ghost h-9 px-4 text-[10px]">Cancel</button></div>
-  </form>;
+  return <article className="panel overflow-hidden">
+    <div className="p-4 sm:p-5 flex gap-4">
+      {video.poster_url
+        ? <img src={video.poster_url} alt="" loading="lazy" className="w-20 sm:w-24 aspect-[2/3] object-cover rounded-md bg-ink shrink-0" />
+        : <div className="w-20 sm:w-24 aspect-[2/3] rounded-md bg-ink border border-line flex items-center justify-center shrink-0"><Film className="text-dim" /></div>}
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2 mb-2">
+          <span className={'label rounded-full px-2.5 py-1 border ' + (video.published ? 'border-nitrate/40 text-nitrate' : 'border-line text-muted')}>
+            {video.published ? 'Published on site' : 'Draft'}
+          </span>
+          <span className="label rounded-full px-2.5 py-1 border border-line text-muted">Archive.org source</span>
+        </div>
+        <h3 className="font-semibold text-bone text-base sm:text-lg leading-snug break-words">{video.title}</h3>
+        <p className="text-xs text-muted mt-1">{[video.year, video.genre].filter(Boolean).join(' · ') || 'No year or genre'}</p>
+        <p className="text-xs text-dim mt-1">{video.video_files} video file(s) · {prettySize(video.file_size)}{video.runtime ? ' · ' + video.runtime : ''}</p>
+        <p className="text-xs text-dim mt-1 break-all">{video.identifier}</p>
+        <div className="flex flex-wrap gap-2 mt-4">
+          <button onClick={beginEdit} className="btn-ghost h-9 px-3 text-[10px]"><Pencil size={13} /> Edit details</button>
+          <button onClick={() => onPublish(video, !video.published)} className="btn-ghost h-9 px-3 text-[10px]">
+            {video.published ? <><EyeOff size={13} /> Unpublish</> : <><Eye size={13} /> Publish</>}
+          </button>
+          <a href={video.archive_url} target="_blank" rel="noreferrer" className="btn-ghost h-9 px-3 text-[10px]"><ExternalLink size={13} /> Archive item</a>
+          <button onClick={() => onRemove(video)} className="btn-ghost h-9 px-3 text-[10px] text-red-300"><Trash2 size={13} /> Remove</button>
+        </div>
+      </div>
+    </div>
+    {editing && <form onSubmit={save} className="border-t border-line bg-ink/60 p-4 sm:p-5 space-y-3">
+      <p className="eyebrow">Edit website display details</p>
+      <input required maxLength={180} aria-label="Title" value={draft.title}
+        onChange={event => setDraft({ ...draft, title: event.target.value })} placeholder="Title" className="admin-input" />
+      <textarea maxLength={2000} aria-label="Description" rows={3} value={draft.description}
+        onChange={event => setDraft({ ...draft, description: event.target.value })} placeholder="Description" className="admin-input rounded-lg py-3" />
+      <div className="grid grid-cols-2 gap-3">
+        <input aria-label="Year" inputMode="numeric" maxLength={4} value={draft.year}
+          onChange={event => setDraft({ ...draft, year: event.target.value })} placeholder="Year" className="admin-input" />
+        <input aria-label="Genre" maxLength={120} value={draft.genre}
+          onChange={event => setDraft({ ...draft, genre: event.target.value })} placeholder="Genre" className="admin-input" />
+      </div>
+      <input aria-label="Poster URL" type="url" value={draft.poster_url}
+        onChange={event => setDraft({ ...draft, poster_url: event.target.value })} placeholder="Poster HTTPS URL" className="admin-input" />
+      {error && <p role="alert" className="text-sm text-red-300">{error}</p>}
+      <div className="flex gap-2">
+        <button disabled={busy} className="btn-primary h-9 px-4 text-[10px]">{busy ? <LoaderCircle size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}Save details</button>
+        <button type="button" onClick={() => setEditing(false)} className="btn-ghost h-9 px-4 text-[10px]">Cancel</button>
+      </div>
+      <p className="text-xs text-dim">These edits change only the website catalogue, not the Archive.org item.</p>
+    </form>}
+  </article>;
 }
+
 export default function AdminPage() {
   const [loggedIn, setLoggedIn] = useState(false);
-  const [checking, setChecking] = useState(true), [videos, setVideos] = useState([]), [error, setError] = useState(''), [notice, setNotice] = useState('');
-  const [busy, setBusy] = useState(false), [progress, setProgress] = useState(0), [file, setFile] = useState(null), [rights, setRights] = useState(false), [form, setForm] = useState(EMPTY);
+  const [checking, setChecking] = useState(true);
+  const [videos, setVideos] = useState([]);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [itemInput, setItemInput] = useState('');
+  const [preview, setPreview] = useState(null);
+  const [previewBusy, setPreviewBusy] = useState(false);
+  const [addBusy, setAddBusy] = useState(false);
+  const [filter, setFilter] = useState('all');
+  const [query, setQuery] = useState('');
+
   const signOut = useCallback(() => {
     fetch('/api/admin/logout', { method: 'POST' }).catch(() => {});
     setLoggedIn(false);
@@ -64,90 +166,212 @@ export default function AdminPage() {
       if (err.message.includes('401')) signOut();
     }
   }, [signOut]);
+
   useEffect(() => {
     document.title = 'Admin dashboard | Orphaned Films';
-    let live = true;
+    let active = true;
     fetch('/api/admin/session')
-      .then(response => { if (live) setLoggedIn(response.ok); })
-      .catch(() => live && setError('Cannot reach the admin service.'))
-      .finally(() => live && setChecking(false));
-    return () => { live = false; };
+      .then(response => { if (active) setLoggedIn(response.ok); })
+      .catch(() => { if (active) setError('Could not connect to the admin service.'); })
+      .finally(() => { if (active) setChecking(false); });
+    return () => { active = false; };
   }, []);
   useEffect(() => { if (loggedIn) load(); }, [loggedIn, load]);
+
   function login() { setLoggedIn(true); }
-  async function setPublished(video, published) {
+  async function previewArchiveItem(event) {
+    event.preventDefault();
+    if (!itemInput.trim() || previewBusy) return;
+    setPreviewBusy(true);
+    setPreview(null);
+    setError('');
+    setNotice('');
     try {
-      await readResponse(await fetch('/api/admin/videos/' + video.id, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ published }) }));
-      await load(); setNotice(published ? 'Video is now published on the website.' : 'Video has been moved to drafts.');
+      const data = await readResponse(await fetch('/api/admin/archive-preview?item=' + encodeURIComponent(itemInput.trim())));
+      setPreview(data.item);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setPreviewBusy(false);
+    }
+  }
+  async function addArchiveItem() {
+    if (!preview || addBusy) return;
+    setAddBusy(true);
+    setError('');
+    try {
+      await readResponse(await fetch('/api/admin/videos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ item: preview.identifier }),
+      }));
+      setNotice('Archive.org item added as a draft. Publish it when you are ready.');
+      setPreview(null);
+      setItemInput('');
+      await load();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setAddBusy(false);
+    }
+  }
+  async function saveItem(id, draft) {
+    await readResponse(await fetch('/api/admin/videos/' + id, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(draft),
+    }));
+    await load();
+  }
+  async function publishItem(video, published) {
+    try {
+      await readResponse(await fetch('/api/admin/videos/' + video.id, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ published }),
+      }));
+      await load();
+      setNotice(published ? 'Video is now visible on the website.' : 'Video has been unpublished on the website.');
       setTimeout(() => setNotice(''), 3500);
-    } catch (err) { setError(err.message); }
+    } catch (err) {
+      setError(err.message);
+    }
   }
-  function upload(e) {
-    e.preventDefault(); if (!file || !form.title.trim() || !rights || busy) return;
-    setBusy(true); setProgress(0); setError(''); setNotice('');
-    const query = new URLSearchParams({ title: form.title, description: form.description, year: form.year, genre: form.genre, posterUrl: form.posterUrl, filename: file.name });
-    const xhr = new XMLHttpRequest(); xhr.open('POST', '/api/admin/upload?' + query.toString());
-    xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
-    xhr.upload.onprogress = e => { if (e.lengthComputable) setProgress(Math.round(e.loaded * 100 / e.total)); };
-    xhr.onload = async () => {
-      let data = {}; try { data = JSON.parse(xhr.responseText || '{}'); } catch { /* empty response */ }
-      if (xhr.status >= 200 && xhr.status < 300) { setNotice('Upload complete. Video saved as a draft; publish it after reviewing the details.'); setForm(EMPTY); setFile(null); setRights(false); await load(); }
-      else setError(data.error || 'Upload failed (' + xhr.status + ').');
-      setBusy(false); setProgress(0);
-    };
-    xhr.onerror = () => { setError('Network error during upload. Try again.'); setBusy(false); };
-    xhr.onabort = () => { setError('Upload cancelled.'); setBusy(false); };
-    xhr.send(file);
+  async function removeItem(video) {
+    const confirmed = window.confirm(
+      'Remove "' + video.title + '" from this website? The Archive.org item and its files will not be deleted.'
+    );
+    if (!confirmed) return;
+    try {
+      await readResponse(await fetch('/api/admin/videos/' + video.id, { method: 'DELETE' }));
+      await load();
+      setNotice('Removed from this website. The Archive.org item remains untouched.');
+      setTimeout(() => setNotice(''), 3500);
+    } catch (err) {
+      setError(err.message);
+    }
   }
-  const published = videos.filter(v => v.published && v.status === 'uploaded').length;
-  const drafts = videos.filter(v => !v.published && v.status === 'uploaded').length;
-  const totalBytes = videos.reduce((sum, v) => sum + (Number(v.file_size) || 0), 0);
+
+  const published = videos.filter(video => video.published).length;
+  const drafts = videos.length - published;
+  const filtered = videos.filter(video => {
+    if (filter === 'published' && !video.published) return false;
+    if (filter === 'drafts' && video.published) return false;
+    const text = (video.title + ' ' + video.identifier + ' ' + (video.genre || '')).toLowerCase();
+    return text.includes(query.toLowerCase().trim());
+  });
+
   if (checking) return <div className="min-h-screen bg-ink text-bone flex items-center justify-center"><LoaderCircle className="animate-spin text-signal" /></div>;
   if (!loggedIn) return <Login onLogin={login} />;
+
   return <div className="min-h-screen bg-ink text-bone">
-    <header className="border-b border-line"><div className="max-w-7xl mx-auto px-4 sm:px-8 py-5 flex items-center justify-between gap-4">
-      <a href="/" className="flex items-center gap-3"><span className="w-10 h-10 rounded-lg bg-signal text-ink flex items-center justify-center"><Clapperboard size={21} /></span><span><span className="display block text-2xl leading-none">Orphaned Films</span><span className="label">Admin control room</span></span></a>
-      <div className="flex items-center gap-2"><a href="/" className="btn-ghost h-9 px-3 text-[10px] hidden sm:inline-flex">View site <ExternalLink size={13} /></a><button onClick={signOut} className="btn-ghost h-9 px-3 text-[10px]"><LogOut size={13} /> Sign out</button></div>
-    </div></header>
+    <header className="border-b border-line">
+      <div className="max-w-7xl mx-auto px-4 sm:px-8 py-5 flex items-center justify-between gap-4">
+        <a href="/" className="flex items-center gap-3 min-w-0">
+          <span className="w-10 h-10 rounded-lg bg-signal text-ink flex items-center justify-center shrink-0"><Clapperboard size={21} /></span>
+          <span><span className="display block text-2xl leading-none">Orphaned Films</span><span className="label">Archive.org control room</span></span>
+        </a>
+        <div className="flex items-center gap-2">
+          <a href="/" className="btn-ghost h-9 px-3 text-[10px] hidden sm:inline-flex">View site <ExternalLink size={13} /></a>
+          <button onClick={signOut} className="btn-ghost h-9 px-3 text-[10px]"><LogOut size={13} /> Sign out</button>
+        </div>
+      </div>
+    </header>
     <main className="max-w-7xl mx-auto px-4 sm:px-8 py-8 sm:py-12">
-      <div className="mb-8"><p className="eyebrow mb-3">Private library management</p><h1 className="display text-5xl sm:text-6xl">Your video library</h1><p className="text-muted mt-3">Upload, organise and publish your own films.</p></div>
+      <div className="mb-8">
+        <p className="eyebrow mb-3">Private library management</p>
+        <h1 className="display text-5xl sm:text-6xl">Your video library</h1>
+        <p className="text-muted mt-3">Curate Archive.org items. Videos stay hosted on Archive.org and play in our website.</p>
+      </div>
       {notice && <div role="status" className="panel border-nitrate/40 text-nitrate p-4 mb-5 flex gap-3"><CheckCircle2 size={18} />{notice}</div>}
       {error && <div role="alert" className="panel border-red-400/40 text-red-200 p-4 mb-5 flex gap-3"><AlertCircle size={18} />{error}</div>}
-      <section className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-9">
-        {[[Film, 'Total videos', videos.length], [Eye, 'Published', published], [EyeOff, 'Drafts', drafts], [Upload, 'Storage uploaded', humanSize(totalBytes)]].map(([Icon, label, value]) => <div key={label} className="panel p-5"><div className="flex justify-between"><span className="label">{label}</span><Icon size={17} className="text-signal" /></div><p className="display text-4xl mt-5">{value}</p></div>)}
+
+      <section className="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-9">
+        {[[Film, 'Curated items', videos.length], [Eye, 'Published on website', published], [EyeOff, 'Drafts', drafts]].map(([Icon, label, value]) =>
+          <div key={label} className="panel p-5">
+            <div className="flex justify-between"><span className="label">{label}</span><Icon size={17} className="text-signal" /></div>
+            <p className="display text-4xl mt-5">{value}</p>
+          </div>
+        )}
       </section>
-      <section className="grid lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] gap-8 items-start">
-        <form onSubmit={upload} className="panel p-5 sm:p-7">
-          <p className="eyebrow mb-2">Add to your collection</p><h2 className="display text-3xl">Upload a video</h2>
-          <label className="block mt-6"><span className="label block mb-2">Video file *</span><input type="file" required accept=".mp4,.m4v,.mov,.webm,.mkv,.avi,.mpeg,.mpg,.ogv,video/*" onChange={e => setFile(e.target.files?.[0] || null)} className="block w-full text-sm text-muted file:mr-3 file:rounded-full file:border-0 file:bg-bone file:px-4 file:py-2.5 file:font-mono file:text-[10px] file:uppercase file:text-ink" /><span className="block text-xs text-dim mt-2">MP4, MOV, WebM, MKV, AVI, MPEG or OGV · max 95 MB.</span></label>
-          {file && <p className="text-xs text-bone mt-3 rounded-lg bg-ink border border-line p-3">{file.name} · {humanSize(file.size)}</p>}
-          <label className="block mt-5"><span className="label block mb-2">Title *</span><input required maxLength={180} value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="Enter video title" className="admin-input" /></label>
-          <label className="block mt-4"><span className="label block mb-2">Description</span><textarea rows={3} maxLength={2000} value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder="Short description" className="admin-input rounded-lg py-3" /></label>
-          <div className="grid grid-cols-2 gap-3 mt-4">
-            <label><span className="label block mb-2">Release year</span><input inputMode="numeric" maxLength={4} value={form.year} onChange={e => setForm({ ...form, year: e.target.value })} placeholder="1998" className="admin-input" /></label>
-            <label><span className="label block mb-2">Genre</span><input maxLength={80} value={form.genre} onChange={e => setForm({ ...form, genre: e.target.value })} placeholder="Drama, Comedy…" className="admin-input" /></label>
-          </div>
-          <label className="block mt-4"><span className="label block mb-2">Poster image URL</span><input type="url" value={form.posterUrl} onChange={e => setForm({ ...form, posterUrl: e.target.value })} placeholder="https://…" className="admin-input" /></label>
-          <label className="flex items-start gap-3 mt-5 text-xs text-muted"><input type="checkbox" checked={rights} onChange={e => setRights(e.target.checked)} className="mt-0.5 accent-orange-500" /><span>I own this video or have permission to upload and publish it.</span></label>
-          {busy && <div className="mt-5"><div className="flex justify-between label mb-2"><span>Uploading to Internet Archive</span><span>{progress}%</span></div><div className="h-2 bg-ink rounded-full overflow-hidden"><div className="h-full bg-signal" style={{ width: progress + '%' }} /></div></div>}
-          <button disabled={busy || !file || !form.title.trim() || !rights} className="btn-primary w-full mt-6">{busy ? <LoaderCircle size={16} className="animate-spin" /> : <Upload size={16} />}{busy ? 'Uploading…' : 'Upload as draft'}</button>
-          <p className="text-xs text-amber-200/80 mt-3 leading-relaxed">Important: Internet Archive items are public after upload. “Draft” only hides the video from this website until you publish it here.</p>
+
+      <section className="panel p-5 sm:p-7 mb-10">
+        <p className="eyebrow mb-2">Add an existing Archive.org movie</p>
+        <h2 className="display text-3xl">Curate a film</h2>
+        <p className="text-sm text-muted mt-2 max-w-2xl leading-relaxed">
+          Paste an Archive.org item identifier or details link. We will check its metadata and video files before adding it. Nothing is uploaded or copied.
+        </p>
+        <form onSubmit={previewArchiveItem} className="mt-6 flex flex-col sm:flex-row gap-3">
+          <label className="flex-1">
+            <span className="label block mb-2">Archive.org link or identifier</span>
+            <input value={itemInput} onChange={event => { setItemInput(event.target.value); setPreview(null); }}
+              placeholder="https://archive.org/details/..." className="admin-input" required />
+          </label>
+          <button disabled={previewBusy || !itemInput.trim()} className="btn-primary sm:self-end h-11 px-5">
+            {previewBusy ? <LoaderCircle size={16} className="animate-spin" /> : <Search size={16} />}
+            {previewBusy ? 'Checking Archive.org…' : 'Preview item'}
+          </button>
         </form>
-        <section><div className="flex items-end justify-between gap-3 mb-4"><div><p className="eyebrow mb-2">Manage your collection</p><h2 className="display text-3xl">Uploaded videos</h2></div><button onClick={load} className="btn-ghost h-9 px-3 text-[10px]">Refresh</button></div>
-          <div className="space-y-3">
-            {videos.length === 0 && <div className="panel p-8 text-center"><Film className="mx-auto text-dim mb-3" size={28} /><p>Your library is empty</p><p className="text-muted text-sm mt-1">Your uploads will appear here.</p></div>}
-            {videos.map(video => <article key={video.id} className="panel overflow-hidden"><div className="p-4 flex gap-4">
-              {video.poster_url ? <img src={video.poster_url} alt="" className="w-20 aspect-[2/3] rounded-md object-cover bg-ink" /> : <div className="w-20 aspect-[2/3] rounded-md bg-ink flex items-center justify-center"><Film className="text-dim" /></div>}
-              <div className="min-w-0 flex-1"><div className="flex flex-wrap gap-2 mb-2"><span className="label border border-line rounded-full px-2 py-1">{video.published ? 'Published' : 'Draft'}</span><span className="label border border-line rounded-full px-2 py-1">{video.status}</span></div>
-                <h3 className="font-semibold break-words">{video.title}</h3><p className="text-xs text-muted mt-1">{[video.year, video.genre].filter(Boolean).join(' · ') || 'No year or genre'} · {humanSize(video.file_size)}</p><p className="text-xs text-dim mt-1 break-all">{video.identifier}</p>
-                <div className="flex flex-wrap gap-2 mt-4"><EditVideo video={video} onSaved={load} />
-                  {video.status === 'uploaded' && <button onClick={() => setPublished(video, !video.published)} className="btn-ghost h-9 px-3 text-[10px]">{video.published ? <><EyeOff size={13} /> Unpublish</> : <><Eye size={13} /> Publish</>}</button>}
-                  <a href={video.archive_url} target="_blank" rel="noreferrer" className="btn-ghost h-9 px-3 text-[10px]"><ExternalLink size={13} /> Archive item</a></div>
-              </div></div>{video.error && <p className="border-t border-line px-4 py-3 text-sm text-red-300">{video.error}</p>}</article>)}
+
+        {preview && <div className="mt-6 rounded-xl border border-line bg-ink/60 p-4 sm:p-5">
+          <div className="flex flex-col sm:flex-row gap-4">
+            <img src={preview.poster_url} alt="" className="w-28 aspect-[2/3] object-cover rounded-md bg-panel shrink-0" />
+            <div className="min-w-0 flex-1">
+              <span className="label text-nitrate">Archive.org item verified</span>
+              <h3 className="display text-2xl mt-2 break-words">{preview.title}</h3>
+              <p className="text-xs text-muted mt-2">{[preview.year, preview.genre].filter(Boolean).join(' · ') || 'No year or subjects in Archive.org metadata'}</p>
+              <p className="text-xs text-dim mt-1">{preview.video_files} video file(s) · {prettySize(preview.file_size)}{preview.runtime ? ' · ' + preview.runtime : ''}</p>
+              {preview.description && <p className="text-sm text-muted mt-3 leading-relaxed">{preview.description}</p>}
+              <a href={preview.archive_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-signal hover:underline mt-3">Open original item <ExternalLink size={12} /></a>
+              <div className="flex flex-wrap gap-2 mt-4">
+                <button onClick={addArchiveItem} disabled={addBusy} className="btn-primary h-10 px-4">
+                  {addBusy ? <LoaderCircle size={15} className="animate-spin" /> : <Plus size={15} />}
+                  {addBusy ? 'Adding…' : 'Add to website as draft'}
+                </button>
+                <button onClick={() => setPreview(null)} className="btn-ghost h-10 px-4 text-[10px]">Cancel</button>
+              </div>
+              <p className="text-xs text-amber-200/80 mt-3 leading-relaxed">
+                Archive.org items are public at their source. Draft only hides this listing from our website.
+              </p>
+            </div>
           </div>
-        </section>
+        </div>}
+      </section>
+
+      <section>
+        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-4">
+          <div><p className="eyebrow mb-2">Manage website listings</p><h2 className="display text-3xl">Curated Archive.org films</h2></div>
+          <button onClick={load} className="btn-ghost h-9 px-3 text-[10px]"><RefreshCw size={13} /> Refresh</button>
+        </div>
+        <div className="flex flex-col sm:flex-row gap-3 mb-4">
+          <label className="flex-1 relative">
+            <span className="sr-only">Search curated items</span>
+            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-dim" />
+            <input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search title, identifier or genre" className="admin-input pl-9" />
+          </label>
+          <div className="flex gap-2">
+            {['all', 'published', 'drafts'].map(value =>
+              <button key={value} onClick={() => setFilter(value)}
+                className={'btn-ghost h-11 px-4 text-[10px] ' + (filter === value ? 'border-signal text-signal' : '')}>
+                {value === 'all' ? 'All' : value === 'published' ? 'Published' : 'Drafts'}
+              </button>
+            )}
+          </div>
+        </div>
+        <div className="space-y-3">
+          {filtered.length === 0 && <div className="panel p-8 text-center">
+            <Film className="mx-auto text-dim mb-3" size={28} />
+            <p className="text-bone font-medium">{videos.length ? 'No matching films' : 'No curated films yet'}</p>
+            <p className="text-muted text-sm mt-1">{videos.length ? 'Try another search or filter.' : 'Add an Archive.org item above to start your website library.'}</p>
+          </div>}
+          {filtered.map(video => <EditListing key={video.id} video={video} onSave={saveItem} onPublish={publishItem} onRemove={removeItem} />)}
+        </div>
       </section>
     </main>
-    <footer className="border-t border-line mt-12"><div className="max-w-7xl mx-auto px-4 sm:px-8 py-5 text-xs text-dim flex justify-between"><span>Orphaned Films · Private admin</span><a href="/" className="hover:text-bone">Return to public site →</a></div></footer>
+    <footer className="border-t border-line mt-12">
+      <div className="max-w-7xl mx-auto px-4 sm:px-8 py-5 text-xs text-dim flex justify-between gap-3">
+        <span>Orphaned Films · Archive.org curation</span><a href="/" className="hover:text-bone">Return to website →</a>
+      </div>
+    </footer>
   </div>;
 }

@@ -6,15 +6,13 @@ CREATE TABLE admin_videos (
   year INTEGER,
   genre TEXT NOT NULL DEFAULT '',
   poster_url TEXT,
-  filename TEXT NOT NULL,
-  file_size INTEGER NOT NULL,
-  mime_type TEXT NOT NULL,
   archive_url TEXT NOT NULL,
-  status TEXT NOT NULL CHECK (status IN ('uploading', 'uploaded', 'failed')),
+  runtime TEXT NOT NULL DEFAULT '',
+  video_files INTEGER NOT NULL DEFAULT 0,
+  file_size INTEGER NOT NULL DEFAULT 0,
   published INTEGER NOT NULL DEFAULT 0 CHECK (published IN (0, 1)),
   created INTEGER NOT NULL,
-  updated INTEGER NOT NULL,
-  error TEXT
+  updated INTEGER NOT NULL
 );
 CREATE INDEX admin_videos_created ON admin_videos(created DESC);
-CREATE INDEX admin_videos_public ON admin_videos(published, status, created DESC);
+CREATE INDEX admin_videos_public ON admin_videos(published, created DESC);
