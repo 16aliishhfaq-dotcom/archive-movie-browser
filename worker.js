@@ -127,7 +127,7 @@ async function sharePage(request, env, db, kind, id) {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
-    const db = env.DATABASE_URL ? createNeonDatabase(env) : env.DB;
+    const db = env.DATABASE_URL ? createNeonDatabase(env) : null;
     const share = ['GET', 'HEAD'].includes(request.method) && url.pathname.match(/^\/(c|u)\/([a-z0-9_-]+)\/?$/);
     if (share && (ID.test(share[2]) || (share[1] === 'u' && HANDLE.test(share[2])))) return sharePage(request, env, db, share[1], share[2]);
     // Handles are lower case; /u/Night-Owl goes to /u/night-owl
