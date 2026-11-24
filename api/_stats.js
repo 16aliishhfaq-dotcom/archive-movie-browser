@@ -252,11 +252,11 @@ const FLUSH_MS = 30_000;
 const pending = [];
 let lastWrite = 0;
 let queued = 0;
-export async function queueWrite(commands) {
+export async function queueWrite(commands, { env } = {}) {
   pending.push(...commands);
   if (Date.now() - lastWrite < FLUSH_MS && ++queued < 200) return;
   const batch = mergeCommands(pending.splice(0));
   lastWrite = Date.now();
   queued = 0;
-  await redis(batch);
+  await redis(batch, { env });
 }

@@ -23,8 +23,8 @@ const COUNTED = { 'profile-created': 'profiles', 'channel-created': 'channels', 
 const LOG_PAGE = 500;
 const PROFILE_ID = /^[A-Za-z0-9_-]{1,64}$/;
 
-function allowed(request) {
-  const expected = process.env.STATS_TOKEN || '';
+function allowed(request, env) {
+  const expected = env?.STATS_TOKEN || (typeof process !== 'undefined' ? process.env.STATS_TOKEN : '') || '';
   const given = (request.headers.get('authorization') || '').replace(/^Bearer\s+/i, '');
   const a = Buffer.from(given), b = Buffer.from(expected);
   if (expected.length < 16 || a.length !== b.length) return false; // bytes, not characters
@@ -34,7 +34,7 @@ function allowed(request) {
 const pairs = (flat) => { const out = []; for (let i = 0; i < (flat || []).length; i += 2) out.push([flat[i], Number(flat[i + 1])]); return out; };
 
 export async function GET(request, env) {
-  if (!allowed(request)) return new Response('Not found', { status: 404 });
+  if (!allowed(request, env)) return new Response('Not found', { status: 404 });
   const params = new URL(request.url).searchParams;
   const searchMonth = params.get('searches');
   const offset = params.get('log');
@@ -47,18 +47,18 @@ export async function GET(request, env) {
   const days = Array.from({ length: DAYS }, (_, i) => new Date(today - i * 86400_000).toISOString().slice(0, 10)).reverse();
   const months = Array.from({ length: MONTHS }, (_, i) => { const d = new Date(today); d.setUTCDate(1); d.setUTCMonth(d.getUTCMonth() - i); return d.toISOString().slice(0, 7); }).reverse();
   try {
-    if (searchMonth) return Response.json(await searchesOf(searchMonth), { headers: { 'Cache-Control': 'no-store' } });
-    if (offset !== null) return Response.json(await logOf(Number(offset)), { headers: { 'Cache-Control': 'no-store' } });
-    if (params.has('profiles')) return Response.json(await profilesOf(env?.DB), { headers: { 'Cache-Control': 'no-store' } });
-    if (profileId !== null) return Response.json(await profileOf(env?.DB, profileId), { headers: { 'Cache-Control': 'no-store' } });
-    return await read(days, months, env?.DB);
+    if (searchMonth) return Response.json(await searchesOf(searchMonth, env), { headers: { 'Cache-Control': 'no-store' } });
+    if (offset !== null) return Response.json(await logOf(Number(offset), env), { headers: { 'Cache-Control': 'no-store' } });
+    if (params.has('profiles')) return Response.json(await profilesOf(env?.DB, env), { headers: { 'Cache-Control': 'no-store' } });
+    if (profileId !== null) return Response.json(await profileOf(env?.DB, profileId, env), { headers: { 'Cache-Control': 'no-store' } });
+    return await read(days, months, env?.DB, env);
   } catch (error) {
     const full = /max requests limit/i.test(error.message);
     return Response.json({ error: full ? 'The stats database has reached its monthly limit, so there is nothing to read until it resets or its plan is upgraded.' : `The stats database did not answer (${error.message}).` }, { status: 503, headers: { 'Cache-Control': 'no-store' } });
   }
 }
 
-async function read(days, months, db) {
+async function read(days, months, db, env) {
   const month = months.at(-1);
   // Redis treats PFCOUNT as a write (it caches its answer in the key), so the read-only token
   // is refused for it. Visitor counts use the main token; everything else reads read-only.
@@ -71,7 +71,7 @@ async function read(days, months, db) {
       ['HGETALL', `stats:hours:${month}`],
       ['HGETALL', `stats:channel-hours:${month}`],
       ['HGETALL', `stats:visit-hours:${month}`],
-    ], { readOnly: true }),
+    ], { readOnly: true, env }),
     redis([
       ...days.map(day => ['PFCOUNT', `stats:visitors:${day}`]), ['PFCOUNT', `stats:visitors:${month}`],
       // The funnel: how many visits reached each stage, per day
@@ -80,12 +80,12 @@ async function read(days, months, db) {
       ...months.map(m => ['PFCOUNT', `stats:visitors:${m}`]),
       // Active now: distinct visits in this five-minute window and the last one (5 to 10 minutes)
       ['PFCOUNT', onlineKey(new Date()), onlineKey(new Date(), 1)],
-    ]),
+    ], { env }),
   ]);
   const afterFunnel = DAYS + 1 + FUNNEL_DAYS * STAGES.length;
 
   const boards = Object.fromEntries(BOARDS.map((board, i) => [board, pairs(reads[DAYS + i])]));
-  const people = boards.searches.length ? await redis(boards.searches.map(([query]) => ['PFCOUNT', `stats:searchers:${month}:${query}`])) : [];
+  const people = boards.searches.length ? await redis(boards.searches.map(([query]) => ['PFCOUNT', `stats:searchers:${month}:${query}`]), { env }) : [];
   boards.searches = boards.searches.map(([query, count], i) => [query, count, people[i] || 0]);
   const after = DAYS + BOARDS.length;
   const recent = (reads[after] || []).flatMap(entry => { try { return [JSON.parse(entry)]; } catch { return []; } });
@@ -96,7 +96,7 @@ async function read(days, months, db) {
 
   // The films table: the most played and most opened films, each with every per-film count
   const tableFilms = [...new Set([...boards.played, ...boards.opened].map(([film]) => film))];
-  const scores = tableFilms.length ? await redis(PER_FILM.map(board => ['ZMSCORE', `stats:${board}:${month}`, ...tableFilms]), { readOnly: true }) : [];
+  const scores = tableFilms.length ? await redis(PER_FILM.map(board => ['ZMSCORE', `stats:${board}:${month}`, ...tableFilms]), { readOnly: true, env }) : [];
   const filmRows = tableFilms.map((film, i) => {
     const at = board => Number(scores[PER_FILM.indexOf(board)]?.[i]) || 0;
     return {
@@ -107,7 +107,7 @@ async function read(days, months, db) {
 
   // Names for every film the page will mention
   const films = [...new Set([...FILM_BOARDS.flatMap(board => boards[board].map(([film]) => film)), ...tableFilms, ...recent.map(event => event.data?.film).filter(Boolean)])];
-  const names = films.length ? (await redis([['HMGET', 'stats:titles', ...films]], { readOnly: true }))[0] : [];
+  const names = films.length ? (await redis([['HMGET', 'stats:titles', ...films]], { readOnly: true, env }))[0] : [];
   const titles = Object.fromEntries(films.map((film, i) => [film, names[i]]).filter(([, title]) => title));
 
   const [saves, community] = await Promise.all([savesOf(db), communityOf(db, days.slice(-COMMUNITY_DAYS))]);
@@ -207,22 +207,22 @@ export function sharesOf(minutesByFilm, films = posterIndex.films, shown = SHOWN
 
 // Names for films: the poster index first, then the titles events carried (best effort: a
 // profile still shows its films by id when the stats database is out)
-async function titlesFor(films) {
+async function titlesFor(films, env) {
   const ids = [...new Set(films.filter(Boolean))];
   const titles = Object.fromEntries(ids.map(film => [film, posterIndex.films[film]?.t]).filter(([, title]) => title));
   const rest = ids.filter(film => !titles[film]);
   if (rest.length) {
-    const [names] = await redis([['HMGET', 'stats:titles', ...rest]], { readOnly: true }).catch(() => [[]]);
+    const [names] = await redis([['HMGET', 'stats:titles', ...rest]], { readOnly: true, env }).catch(() => [[]]);
     rest.forEach((film, i) => { if (names[i]) titles[film] = names[i]; });
   }
   return titles;
 }
 
 // One page of the event log from `offset`, newest first, with how long the log is
-export async function logOf(offset) {
-  const [flat, total] = await redis([['LRANGE', 'stats:recent', offset, offset + LOG_PAGE - 1], ['LLEN', 'stats:recent']], { readOnly: true });
+export async function logOf(offset, env) {
+  const [flat, total] = await redis([['LRANGE', 'stats:recent', offset, offset + LOG_PAGE - 1], ['LLEN', 'stats:recent']], { readOnly: true, env });
   const rows = (flat || []).flatMap(entry => { try { return [JSON.parse(entry)]; } catch { return []; } });
-  return { offset, total: Number(total) || 0, rows, titles: await titlesFor(rows.map(event => event.data?.film)) };
+  return { offset, total: Number(total) || 0, rows, titles: await titlesFor(rows.map(event => event.data?.film), env) };
 }
 
 // Every profile, the most recently changed first, with what each has made. Never the key hash.
@@ -239,7 +239,7 @@ export async function profilesOf(db) {
 
 // One profile: its favourites (newest first), its channels with their films and notes, and its
 // last 200 changes (kind, time, channel and the first 6 characters of the network tag)
-export async function profileOf(db, id) {
+export async function profileOf(db, id, env) {
   if (!db) return { profile: null };
   const [profile, favourites, channels, films, history] = await db.batch([
     db.prepare('SELECT id, name, handle, archive_user, hidden, agreed_at, created, updated FROM profiles WHERE id = ?').bind(id),
@@ -251,7 +251,7 @@ export async function profileOf(db, id) {
   if (!profile.results[0]) return { profile: null };
   const byChannel = {};
   for (const row of films.results) (byChannel[row.channel_id] ||= []).push({ film: row.film, note: row.note });
-  const titles = await titlesFor([...favourites.results.map(r => r.film), ...films.results.map(r => r.film)]);
+  const titles = await titlesFor([...favourites.results.map(r => r.film), ...films.results.map(r => r.film)], env);
   return {
     profile: profile.results[0],
     favourites: favourites.results,
@@ -262,9 +262,9 @@ export async function profileOf(db, id) {
 }
 
 // Every search in one month, most asked first; the most asked also say how many visits asked
-export async function searchesOf(month) {
-  const [flat] = await redis([['ZREVRANGE', `stats:searches:${month}`, 0, -1, 'WITHSCORES']], { readOnly: true });
+export async function searchesOf(month, env) {
+  const [flat] = await redis([['ZREVRANGE', `stats:searches:${month}`, 0, -1, 'WITHSCORES']], { readOnly: true, env });
   const rows = pairs(flat);
-  const people = rows.length ? await redis(rows.slice(0, SEARCH_PEOPLE).map(([query]) => ['PFCOUNT', `stats:searchers:${month}:${query}`])) : [];
+  const people = rows.length ? await redis(rows.slice(0, SEARCH_PEOPLE).map(([query]) => ['PFCOUNT', `stats:searchers:${month}:${query}`]), { env }) : [];
   return { month, rows: rows.map(([query, count], i) => [query, count, i < SEARCH_PEOPLE ? people[i] || 0 : null]) };
 }

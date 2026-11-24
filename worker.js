@@ -6,47 +6,13 @@ import subtitles from './api/subtitles.js';
 import tmdb from './api/tmdb.js';
 import tv from './api/tv.js';
 import halloween from './api/halloween.js';
-import { POST as event } from './api/event.js';
-import { GET as stats } from './api/stats.js';
 import { handle as mcp } from './api/mcp.js';
-import { handle as community } from './api/community.js';
-import * as webauthn from '@simplewebauthn/server';
-import { redis } from './api/_redis.js';
-import { isForbidden, isMature } from './src/services/policy.js';
+import { handle as admin } from './api/admin.js';
+import { isForbidden } from './src/services/policy.js';
 import { route } from './api/_routes.js';
 import { getChannel, getProfile, isListed, movedHandle, ID } from './api/_community.js';
 import { HANDLE } from './src/services/handle.js';
 import posterIndex from './public/poster-index.json' with { type: 'json' };
-
-const months = (now = new Date()) => [0, 1].map(back => new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - back, 1)).toISOString().slice(0, 7));
-async function redisMinutes(members) {
-  if (!members.length) return {};
-  const scores = await redis(months().map(m => ['ZMSCORE', `stats:channel-minutes:${m}`, ...members]), { readOnly: true }).catch(() => []);
-  return Object.fromEntries(members.map((m, i) => [m, scores.reduce((sum, list) => sum + (Number(list?.[i]) || 0), 0)]));
-}
-// A film's verdict is remembered for this instance; a lookup that failed (slow, down, no
-// record) is not, so it is asked again later
-const verdicts = new Map();
-async function archiveFlag(film) {
-  if (verdicts.has(film)) return verdicts.get(film);
-  const meta = await fetch(`https://archive.org/metadata/${encodeURIComponent(film)}/metadata`, { signal: AbortSignal.timeout(5000) }).then(r => (r.ok ? r.json() : null)).catch(() => null);
-  if (!meta?.result) return true;
-  const verdict = isForbidden(meta.result) ? 'forbidden' : isMature(meta.result);
-  if (verdicts.size > 2000) verdicts.clear(); // ponytail: a whole reset, as in api/_tv.js
-  verdicts.set(film, verdict);
-  return verdict;
-}
-
-// Whether a Turnstile token from the feedback form is real, unused and from our widget
-async function passedTurnstile(secret, token, ip) {
-  if (!secret || typeof token !== 'string' || !token || token.length > 2048) return false;
-  const form = new FormData();
-  form.set('secret', secret);
-  form.set('response', token);
-  if (ip) form.set('remoteip', ip);
-  const result = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', { method: 'POST', body: form, signal: AbortSignal.timeout(5000) }).then(r => r.json()).catch(() => null);
-  return result?.success === true;
-}
 
 // The handlers written for (req, res), run with a web Request and answered with a Response
 const node = (handler) => async (request, query, env) => {
@@ -64,8 +30,6 @@ const node = (handler) => async (request, query, env) => {
   return new Response(request.method === 'HEAD' ? null : body, { status, headers });
 };
 
-const web = (handler, method) => (request, query, env) => (request.method === method ? handler(request, env) : new Response(null, { status: 405 }));
-
 const API = {
   'archive-list': node(archiveList),
   sitemap: node(sitemap),
@@ -73,10 +37,11 @@ const API = {
   tmdb: node(tmdb),
   tv: node(tv),
   halloween: node(halloween),
-  event: web(event, 'POST'),
-  stats: web(stats, 'GET'),
+  event: () => Response.json({ error: 'Event analytics are disabled; Redis is reserved for movie caching.' }, { status: 503 }),
+  stats: () => Response.json({ error: 'Stats are disabled; Neon is reserved for the movie catalogue.' }, { status: 503 }),
   mcp: (request) => mcp(request),
-  community: (request, query, env) => community(request, { db: env.DB, flag: archiveFlag, minutes: redisMinutes, webauthn, netSalt: env.NET_SALT, now: Date.now(), human: (token, ip) => passedTurnstile(env.TURNSTILE_SECRET, token, ip) }),
+  community: () => Response.json({ error: 'Community features are disabled; Neon is reserved for the movie catalogue.' }, { status: 503 }),
+  admin,
 };
 
 // The share card's picture: the poster of the first film that has one
@@ -93,7 +58,7 @@ const escapeHtml = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<':
 // /c/<id>, /u/<id> and /u/<handle>: the app's page with a share preview; unlisted channels and
 // profiles are noindex. A profile with a handle names /u/<handle> as its address; a handle it
 // gave up redirects to it while held.
-async function sharePage(request, env, kind, id) {
+async function sharePage(request, env, db, kind, id) {
   const asset = await env.ASSETS.fetch(new Request(new URL('/', request.url)));
   const headers = new Headers(asset.headers);
   headers.delete('ETag');
@@ -103,8 +68,8 @@ async function sharePage(request, env, kind, id) {
   let data;
   let moved;
   try {
-    data = kind === 'c' ? await getChannel(env.DB, id) : await getProfile(env.DB, id);
-    moved = !data && kind === 'u' && await movedHandle(env.DB, id, Date.now());
+    data = kind === 'c' ? await getChannel(db, id) : await getProfile(db, id);
+    moved = !data && kind === 'u' && await movedHandle(db, id, Date.now());
   } catch {
     return new Response(html, { status: asset.status, headers });
   }
@@ -124,24 +89,26 @@ async function sharePage(request, env, kind, id) {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+    const db = null;
     const share = ['GET', 'HEAD'].includes(request.method) && url.pathname.match(/^\/(c|u)\/([a-z0-9_-]+)\/?$/);
-    if (share && (ID.test(share[2]) || (share[1] === 'u' && HANDLE.test(share[2])))) return sharePage(request, env, share[1], share[2]);
+    if (share && (ID.test(share[2]) || (share[1] === 'u' && HANDLE.test(share[2])))) return sharePage(request, env, db, share[1], share[2]);
     // Handles are lower case; /u/Night-Owl goes to /u/night-owl
     const upper = url.pathname.match(/^\/u\/([A-Za-z0-9_-]+)\/?$/);
     if (upper && upper[1] !== upper[1].toLowerCase() && HANDLE.test(upper[1].toLowerCase())) return Response.redirect(new URL(`/u/${upper[1].toLowerCase()}${url.search}`, url).href, 308);
     if (/^\/[cu]\//.test(url.pathname)) return env.ASSETS.fetch(request);
     const found = route(url.pathname);
     if (!found) return new Response('Not found', { status: 404 });
+    if (['community', 'stats'].includes(found.name)) return API[found.name](request, {}, env, null);
     const query = { ...Object.fromEntries(url.searchParams), ...found.query };
     // Answers marked s-maxage are kept in Cloudflare's cache for that long, as Vercel's CDN did
-    const cacheable = request.method === 'GET' && found.name !== 'stats' && (found.name !== 'community' || url.pathname === '/api/channels');
+    const cacheable = request.method === 'GET' && found.name !== 'stats' && found.name !== 'admin' && (found.name !== 'community' || url.pathname === '/api/channels');
     // The channel listing ignores its query string, so it is cached under the bare path
     const cacheKey = found.name === 'community' ? new Request(new URL(url.pathname, request.url)) : request;
     if (cacheable) {
       const hit = await caches.default.match(cacheKey);
       if (hit) return hit;
     }
-    const response = await API[found.name](request, query, env);
+    const response = await API[found.name](request, query, env, db);
     if (cacheable && response.status === 200 && /s-maxage=\d+/.test(response.headers.get('Cache-Control') || '')) {
       ctx.waitUntil(caches.default.put(cacheKey, response.clone()));
     }

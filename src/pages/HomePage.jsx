@@ -18,6 +18,7 @@ import Lists from '../components/home/Lists';
 import ContinueWatching from '../components/home/ContinueWatching';
 import OnAir from '../components/home/OnAir';
 import Shelf from '../components/home/Shelf';
+import PublicUploads from './PublicUploads';
 
 // The front desk. Tonight's film, the numbers, and rows with a reason. Everything comes from
 // the poster index except two live rows (horror, newest), and those only show posters.
@@ -94,6 +95,7 @@ export default function HomePage() {
         <FilmRow id="heard-of" cards={heardOfFilms.map(cardFromIndex)} eyebrow="Out of copyright" title="You've heard of these" blurb={`The best-known films from ${heardOf.lastYear} and before. US copyright has run out on every one of them, so they belong to everyone.`} more="All 1920s" href="/browse?genre=all&decade=1920" />
       )}
       {eightiesList && <Shelf list={eightiesList} index={index} more={eighties.more} lead={false} last />}
+      <PublicUploads />
       <SiteFooter counts={counts} />
     </div>
   );
