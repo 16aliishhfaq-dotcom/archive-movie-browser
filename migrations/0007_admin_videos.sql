@@ -11,7 +11,7 @@ CREATE TABLE admin_videos (
   mime_type TEXT NOT NULL,
   archive_url TEXT NOT NULL,
   status TEXT NOT NULL CHECK (status IN ('uploading', 'uploaded', 'failed')),
-  published INTEGER NOT NULL DEFAULT 1 CHECK (published IN (0, 1)),
+  published INTEGER NOT NULL DEFAULT 0 CHECK (published IN (0, 1)),
   created INTEGER NOT NULL,
   updated INTEGER NOT NULL,
   error TEXT
