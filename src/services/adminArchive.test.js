@@ -54,6 +54,13 @@ test('rejects items with no supported video files', () => {
   }, 'no-video'), /No supported video file/);
 });
 
+test('rejects items on the site's takedown list', () => {
+  assert.throws(() => normalizeArchiveItem({
+    metadata: { identifier: 'orphanedfilms-takedown-test', mediatype: 'movies', title: 'Removed item' },
+    files: [{ name: 'film.mp4', size: '100' }],
+  }, 'orphanedfilms-takedown-test'), /takedown list/);
+});
+
 test('rejects blocked content and identifier mismatches', () => {
   assert.throws(() => normalizeArchiveItem({
     metadata: { identifier: 'unsafe-item', mediatype: 'movies', title: 'Rape archive footage' },

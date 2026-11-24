@@ -1,5 +1,6 @@
 // Curate existing Archive.org items. This API never uploads or modifies Archive.org files.
 import { normalizeArchiveItem, parseArchiveIdentifier } from '../src/services/adminArchive.js';
+import { isForbidden, isTakenDown } from '../src/services/policy.js';
 
 const SESSION_MS = 12 * 60 * 60 * 1000;
 const attempts = new Map();
@@ -175,6 +176,9 @@ async function updateItem(request, env, id) {
   const posterUrl = body.poster_url === undefined ? current.poster_url : clean(body.poster_url, 500);
   const published = body.published === undefined ? Number(current.published) : (body.published ? 1 : 0);
   if (!title) return json({ error: 'Title cannot be empty.' }, 400);
+  if (published && (isTakenDown(current.identifier) || isForbidden({ title, description, subject: genre }))) {
+    return json({ error: 'This item cannot be published because it conflicts with the website content/takedown policy.' }, 400);
+  }
   if (year !== null && (!Number.isInteger(year) || year < 1880 || year > 2100)) return json({ error: 'Enter a valid year between 1880 and 2100.' }, 400);
   if (posterUrl) {
     try { if (new URL(posterUrl).protocol !== 'https:') throw new Error(); }
@@ -199,7 +203,8 @@ async function adminRoute(request, env) {
   if (path === '/api/uploads' && request.method === 'GET') {
     if (!env.DB) return json({ videos: [] });
     const rows = (await env.DB.prepare('SELECT * FROM admin_videos WHERE published = 1 ORDER BY created DESC LIMIT 300').all()).results || [];
-    return json({ videos: rows.map(record) });
+    const visible = rows.filter(row => !isTakenDown(row.identifier) && !isForbidden({ title: row.title, description: row.description, subject: row.genre }));
+    return json({ videos: visible.map(record) });
   }
   if (!await validSession(request, env.ADMIN_SESSION_SECRET)) return empty(401);
   if (!env.DB) return json({ error: 'The D1 database binding is not configured.' }, 503);
