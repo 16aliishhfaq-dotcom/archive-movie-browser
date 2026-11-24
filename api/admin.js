@@ -95,36 +95,6 @@ async function cacheDelete(env, key) {
   try { await redis([['DEL', key]], { env }); } catch { /* the next read will rebuild the cache */ }
 }
 
-async function hashHex(value) {
-  const digest = await crypto.subtle.digest('SHA-256', encoder.encode(value));
-  return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('');
-}
-
-function overLimit(key, max, windowMs) {
-  const now = Date.now();
-  const current = attempts.get(key);
-  if (!current || current.until <= now) {
-    attempts.set(key, { count: 1, until: now + windowMs });
-    if (attempts.size > 2000) {
-      for (const [name, value] of attempts) if (value.until <= now) attempts.delete(name);
-    }
-    return false;
-  }
-  current.count += 1;
-  return current.count > max;
-}
-
-async function loginOverLimit(env, ip) {
-  if (!redisConfigured(env)) return { blocked: overLimit('login:' + ip, 8, LOGIN_WINDOW_SECONDS * 1000), key: null };
-  const key = 'orphanedfilms:admin:login:' + (await hashHex(ip)).slice(0, 32);
-  try {
-    const results = await redis([['INCR', key], ['EXPIRE', key, LOGIN_WINDOW_SECONDS]], { env });
-    return { blocked: Number(results[0]) > 8, key };
-  } catch {
-    return { blocked: overLimit('login:' + ip, 8, LOGIN_WINDOW_SECONDS * 1000), key: null };
-  }
-}
-
 async function readJson(request) {
   if (Number(request.headers.get('content-length') || 0) > 16_384) return { error: 413 };
   const body = await request.text();

@@ -6,7 +6,6 @@ import subtitles from './api/subtitles.js';
 import tmdb from './api/tmdb.js';
 import tv from './api/tv.js';
 import halloween from './api/halloween.js';
-import { POST as event } from './api/event.js';
 import { GET as stats } from './api/stats.js';
 import { handle as mcp } from './api/mcp.js';
 import { handle as community } from './api/community.js';
@@ -75,7 +74,7 @@ const API = {
   tmdb: node(tmdb),
   tv: node(tv),
   halloween: node(halloween),
-  event: web(event, 'POST'),
+  event: () => Response.json({ error: 'Event analytics are disabled; Redis is reserved for movie caching.' }, { status: 503 }),
   stats: (request, query, env, db) => request.method === 'GET' ? stats(request, { ...env, DB: db }) : new Response(null, { status: 405 }),
   mcp: (request) => mcp(request),
   community: (request, query, env, db) => community(request, { db, flag: archiveFlag, minutes: members => redisMinutes(members, env), webauthn, netSalt: env.NET_SALT, now: Date.now(), human: (token, ip) => passedTurnstile(env.TURNSTILE_SECRET, token, ip) }),
