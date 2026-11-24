@@ -131,7 +131,7 @@ export default function AdminPage() {
           <label className="flex items-start gap-3 mt-5 text-xs text-muted"><input type="checkbox" checked={rights} onChange={e => setRights(e.target.checked)} className="mt-0.5 accent-orange-500" /><span>I own this video or have permission to upload and publish it.</span></label>
           {busy && <div className="mt-5"><div className="flex justify-between label mb-2"><span>Uploading to Internet Archive</span><span>{progress}%</span></div><div className="h-2 bg-ink rounded-full overflow-hidden"><div className="h-full bg-signal" style={{ width: progress + '%' }} /></div></div>}
           <button disabled={busy || !file || !form.title.trim() || !rights} className="btn-primary w-full mt-6">{busy ? <LoaderCircle size={16} className="animate-spin" /> : <Upload size={16} />}{busy ? 'Uploading…' : 'Upload as draft'}</button>
-          <p className="text-xs text-dim mt-3">Videos stay unpublished until you choose to publish them.</p>
+          <p className="text-xs text-amber-200/80 mt-3 leading-relaxed">Important: Internet Archive items are public after upload. “Draft” only hides the video from this website until you publish it here.</p>
         </form>
         <section><div className="flex items-end justify-between gap-3 mb-4"><div><p className="eyebrow mb-2">Manage your collection</p><h2 className="display text-3xl">Uploaded videos</h2></div><button onClick={load} className="btn-ghost h-9 px-3 text-[10px]">Refresh</button></div>
           <div className="space-y-3">

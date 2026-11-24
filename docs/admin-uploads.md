@@ -1,6 +1,6 @@
 # Admin video uploads
 
-The private dashboard is at /admin. Video bytes are streamed through your Cloudflare Worker to Internet Archive. Archive keys and the admin password remain server-side only.
+The private dashboard is at /admin. Video bytes are streamed through your Cloudflare Worker to Internet Archive. Archive keys and the admin password remain server-side only. Important: Internet Archive items are public after upload; the dashboard's Draft state only hides an item from this website, not from Archive.org.
 
 ## Before deployment
 
