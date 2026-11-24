@@ -31,7 +31,7 @@ function makeMockSql() {
   tag.query = async (text, values, options) => {
     tag.lastQuery = text;
     tag.lastValues = values;
-    const rows = [{ id: 'profile-1', profiles: '2', saves: '3', __d1_change: 1 }];
+    const rows = [{ id: 'profile-1', profiles: '2', hearters: '3', saves: '3', __d1_change: 1 }];
     return options?.fullResults ? { rows, rowCount: 1 } : rows;
   };
   tag.transaction = async build => {
@@ -51,6 +51,7 @@ test('binds parameters and returns D1-compatible first/all/run results', async (
   const result = (await statement.all()).results;
   assert.equal(result.length, 1);
   assert.equal(result[0].profiles, 2);
+  assert.equal(result[0].hearters, 3);
   assert.equal(result[0].saves, 3);
   assert.equal(sql.lastQuery, 'SELECT id FROM profiles WHERE id = $1');
   const run = await db.prepare('UPDATE profiles SET hidden = ? WHERE id = ?').bind(1, 'profile-1').run();
