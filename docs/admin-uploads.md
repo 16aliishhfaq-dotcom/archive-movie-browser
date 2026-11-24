@@ -20,7 +20,7 @@ The first version streams each upload and caps it at 95 MiB. Cloudflare document
 
 ## Routes
 
-- POST /api/admin/session — password login; returns a 12-hour signed bearer token.
+- POST /api/admin/session — password login; sets a 12-hour signed HttpOnly, Secure, SameSite=Strict session cookie.
 - GET /api/admin/session — validate the current token.
 - GET /api/admin/videos — private upload list.
 - POST /api/admin/upload — upload raw video bytes to Archive.org.

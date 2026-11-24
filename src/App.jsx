@@ -31,7 +31,8 @@ export default function App() {
   if (adoptFromLink(window.location.pathname, window.location.hash)) { window.location.replace(window.location.pathname); return null; }
   // The panel would sit over the TV player's controls
   const onTv = /^\/(tv|c\/[^/]+)$/.test(window.location.pathname.replace(/\/+$/, ''));
-  return <><Routed />{!onTv && <SaveLinkPanel />}</>;
+  const onAdmin = window.location.pathname.replace(/\/+$/, '') === '/admin';
+  return <><Routed />{!onTv && !onAdmin && <SaveLinkPanel />}</>;
 }
 
 function Routed() {

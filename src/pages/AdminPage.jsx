@@ -13,7 +13,7 @@ function Login({ onLogin }) {
   async function submit(e) {
     e.preventDefault(); setBusy(true); setError('');
     try {
-      const data = await readResponse(await fetch('/api/admin/session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) }));
+      await readResponse(await fetch('/api/admin/session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) }));
       onLogin();
     } catch (err) { setError(err.message); } finally { setBusy(false); }
   }
