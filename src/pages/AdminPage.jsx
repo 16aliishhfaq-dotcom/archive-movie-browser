@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { AlertCircle, CheckCircle2, Clapperboard, ExternalLink, Eye, EyeOff, Film, LoaderCircle, LogOut, Pencil, Save, Upload } from 'lucide-react';
 
-const KEY = 'orphanedfilms-admin-session';
 const EMPTY = { title: '', description: '', year: '', genre: '', posterUrl: '' };
 const humanSize = n => n < 1048576 ? Math.round(n / 1024) + ' KB' : (n / 1048576).toFixed(1) + ' MB';
 async function readResponse(response) {
@@ -15,7 +14,7 @@ function Login({ onLogin }) {
     e.preventDefault(); setBusy(true); setError('');
     try {
       const data = await readResponse(await fetch('/api/admin/session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) }));
-      onLogin(data.token);
+      onLogin();
     } catch (err) { setError(err.message); } finally { setBusy(false); }
   }
   return <div className="min-h-screen bg-ink text-bone flex items-center justify-center p-5"><form onSubmit={submit} className="panel w-full max-w-md p-8">
@@ -26,14 +25,14 @@ function Login({ onLogin }) {
     <a href="/" className="block text-center text-muted hover:text-bone text-xs mt-6">← Back to website</a>
   </form></div>;
 }
-function EditVideo({ video, token, onSaved }) {
+function EditVideo({ video, onSaved }) {
   const [open, setOpen] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState('');
   const [draft, setDraft] = useState({});
   function start() { setDraft({ title: video.title, description: video.description || '', year: video.year || '', genre: video.genre || '', poster_url: video.poster_url || '' }); setError(''); setOpen(true); }
   async function save(e) {
     e.preventDefault(); setBusy(true); setError('');
     try {
-      await readResponse(await fetch('/api/admin/videos/' + video.id, { method: 'PATCH', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify(draft) }));
+      await readResponse(await fetch('/api/admin/videos/' + video.id, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(draft) }));
       setOpen(false); await onSaved();
     } catch (err) { setError(err.message); } finally { setBusy(false); }
   }
@@ -47,28 +46,38 @@ function EditVideo({ video, token, onSaved }) {
   </form>;
 }
 export default function AdminPage() {
-  const [token, setToken] = useState(() => { try { return sessionStorage.getItem(KEY) || ''; } catch { return ''; } });
+  const [loggedIn, setLoggedIn] = useState(false);
   const [checking, setChecking] = useState(true), [videos, setVideos] = useState([]), [error, setError] = useState(''), [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false), [progress, setProgress] = useState(0), [file, setFile] = useState(null), [rights, setRights] = useState(false), [form, setForm] = useState(EMPTY);
-  const signOut = useCallback(() => { try { sessionStorage.removeItem(KEY); } catch { /* private mode */ } setToken(''); setVideos([]); }, []);
+  const signOut = useCallback(() => {
+    fetch('/api/admin/logout', { method: 'POST' }).catch(() => {});
+    setLoggedIn(false);
+    setVideos([]);
+  }, []);
   const load = useCallback(async () => {
-    try { const data = await readResponse(await fetch('/api/admin/videos', { headers: { Authorization: 'Bearer ' + token } })); setVideos(data.videos || []); setError(''); }
-    catch (err) { setError(err.message); if (err.message.includes('401')) signOut(); }
-  }, [token, signOut]);
+    try {
+      const data = await readResponse(await fetch('/api/admin/videos'));
+      setVideos(data.videos || []);
+      setError('');
+    } catch (err) {
+      setError(err.message);
+      if (err.message.includes('401')) signOut();
+    }
+  }, [signOut]);
   useEffect(() => {
     document.title = 'Admin dashboard | Orphaned Films';
     let live = true;
-    if (!token) { setChecking(false); return () => { live = false; }; }
-    fetch('/api/admin/session', { headers: { Authorization: 'Bearer ' + token } })
-      .then(r => { if (live) { if (r.ok) load(); else signOut(); } })
+    fetch('/api/admin/session')
+      .then(response => { if (live) setLoggedIn(response.ok); })
       .catch(() => live && setError('Cannot reach the admin service.'))
       .finally(() => live && setChecking(false));
     return () => { live = false; };
-  }, [token, load, signOut]);
-  function login(value) { try { sessionStorage.setItem(KEY, value); } catch { /* memory only */ } setToken(value); }
+  }, []);
+  useEffect(() => { if (loggedIn) load(); }, [loggedIn, load]);
+  function login() { setLoggedIn(true); }
   async function setPublished(video, published) {
     try {
-      await readResponse(await fetch('/api/admin/videos/' + video.id, { method: 'PATCH', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify({ published }) }));
+      await readResponse(await fetch('/api/admin/videos/' + video.id, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ published }) }));
       await load(); setNotice(published ? 'Video is now published on the website.' : 'Video has been moved to drafts.');
       setTimeout(() => setNotice(''), 3500);
     } catch (err) { setError(err.message); }
@@ -78,7 +87,7 @@ export default function AdminPage() {
     setBusy(true); setProgress(0); setError(''); setNotice('');
     const query = new URLSearchParams({ title: form.title, description: form.description, year: form.year, genre: form.genre, posterUrl: form.posterUrl, filename: file.name });
     const xhr = new XMLHttpRequest(); xhr.open('POST', '/api/admin/upload?' + query.toString());
-    xhr.setRequestHeader('Authorization', 'Bearer ' + token); xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+    xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
     xhr.upload.onprogress = e => { if (e.lengthComputable) setProgress(Math.round(e.loaded * 100 / e.total)); };
     xhr.onload = async () => {
       let data = {}; try { data = JSON.parse(xhr.responseText || '{}'); } catch { /* empty response */ }
@@ -94,7 +103,7 @@ export default function AdminPage() {
   const drafts = videos.filter(v => !v.published && v.status === 'uploaded').length;
   const totalBytes = videos.reduce((sum, v) => sum + (Number(v.file_size) || 0), 0);
   if (checking) return <div className="min-h-screen bg-ink text-bone flex items-center justify-center"><LoaderCircle className="animate-spin text-signal" /></div>;
-  if (!token) return <Login onLogin={login} />;
+  if (!loggedIn) return <Login onLogin={login} />;
   return <div className="min-h-screen bg-ink text-bone">
     <header className="border-b border-line"><div className="max-w-7xl mx-auto px-4 sm:px-8 py-5 flex items-center justify-between gap-4">
       <a href="/" className="flex items-center gap-3"><span className="w-10 h-10 rounded-lg bg-signal text-ink flex items-center justify-center"><Clapperboard size={21} /></span><span><span className="display block text-2xl leading-none">Orphaned Films</span><span className="label">Admin control room</span></span></a>
@@ -131,7 +140,7 @@ export default function AdminPage() {
               {video.poster_url ? <img src={video.poster_url} alt="" className="w-20 aspect-[2/3] rounded-md object-cover bg-ink" /> : <div className="w-20 aspect-[2/3] rounded-md bg-ink flex items-center justify-center"><Film className="text-dim" /></div>}
               <div className="min-w-0 flex-1"><div className="flex flex-wrap gap-2 mb-2"><span className="label border border-line rounded-full px-2 py-1">{video.published ? 'Published' : 'Draft'}</span><span className="label border border-line rounded-full px-2 py-1">{video.status}</span></div>
                 <h3 className="font-semibold break-words">{video.title}</h3><p className="text-xs text-muted mt-1">{[video.year, video.genre].filter(Boolean).join(' · ') || 'No year or genre'} · {humanSize(video.file_size)}</p><p className="text-xs text-dim mt-1 break-all">{video.identifier}</p>
-                <div className="flex flex-wrap gap-2 mt-4"><EditVideo video={video} token={token} onSaved={load} />
+                <div className="flex flex-wrap gap-2 mt-4"><EditVideo video={video} onSaved={load} />
                   {video.status === 'uploaded' && <button onClick={() => setPublished(video, !video.published)} className="btn-ghost h-9 px-3 text-[10px]">{video.published ? <><EyeOff size={13} /> Unpublish</> : <><Eye size={13} /> Publish</>}</button>}
                   <a href={video.archive_url} target="_blank" rel="noreferrer" className="btn-ghost h-9 px-3 text-[10px]"><ExternalLink size={13} /> Archive item</a></div>
               </div></div>{video.error && <p className="border-t border-line px-4 py-3 text-sm text-red-300">{video.error}</p>}</article>)}

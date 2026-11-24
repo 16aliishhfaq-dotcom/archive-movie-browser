@@ -70,7 +70,8 @@ async function issueSession(secret) {
 
 async function validSession(request, secret) {
   if (!secret) return false;
-  const token = (request.headers.get('authorization') || '').replace(/^Bearer\s+/i, '');
+  const cookie = request.headers.get('cookie') || '';
+  const token = cookie.split(';').map(part => part.trim()).find(part => part.startsWith('of_admin='))?.slice('of_admin='.length) || '';
   const [payload, signature, extra] = token.split('.');
   if (!payload || !signature || extra) return false;
   try {
@@ -140,7 +141,9 @@ async function signIn(request, env) {
   if (!await passwordMatches(parsed.body?.password, env.ADMIN_PASSWORD)) return json({ error: 'Incorrect password.' }, 401);
   attempts.delete(`login:${ip}`);
   const token = await issueSession(env.ADMIN_SESSION_SECRET);
-  return json({ token, expiresIn: SESSION_MS });
+  return json({ ok: true }, 200, {
+    'Set-Cookie': `of_admin=${token}; Path=/; Max-Age=${SESSION_MS / 1000}; HttpOnly; Secure; SameSite=Strict`,
+  });
 }
 
 async function uploadVideo(request, env) {
@@ -261,6 +264,12 @@ async function adminRoute(request, env) {
     if (request.method === 'POST') return signIn(request, env);
     if (request.method === 'GET') return await validSession(request, env.ADMIN_SESSION_SECRET) ? json({ ok: true }) : empty(401);
     return empty(405);
+  }
+  if (path === '/api/admin/logout' && request.method === 'POST') {
+    if (!sameSite(request)) return empty(403);
+    return json({ ok: true }, 200, {
+      'Set-Cookie': 'of_admin=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Strict',
+    });
   }
   if (path === '/api/uploads' && request.method === 'GET') {
     if (!env.DB) return json({ videos: [] }, 200, { 'Cache-Control': 'public, s-maxage=60' });
