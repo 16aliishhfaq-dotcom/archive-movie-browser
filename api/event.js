@@ -19,7 +19,7 @@ const done = (status) => new Response(null, { status });
 // "null" (sandboxed frames, some redirects) and other non-URL values are real Origin headers
 const originHost = (origin) => { try { return new URL(origin).host; } catch { return null; } };
 
-export async function POST(request) {
+export async function POST(request, env) {
   // Only our own pages report events: a browser sets these headers and a page cannot fake them.
   // A request with neither is not from a browser page, so it is not counted.
   const site = request.headers.get('sec-fetch-site');
@@ -44,7 +44,7 @@ export async function POST(request) {
   // and system families; none of it is kept with the view
   const view = event.name === 'Page view' ? { visitor: await visitorToken(ip, userAgent, statsDay(now)), country: countryOf(request.cf?.country), ...agentOf(userAgent) } : {};
   try {
-    await queueWrite(commandsFor(event, { now, ...view }));
+    await queueWrite(commandsFor(event, { now, ...view }), { env });
   } catch (error) {
     console.error('stats:', error.message);
     return done(503);

@@ -11,6 +11,7 @@ import { GET as stats } from './api/stats.js';
 import { handle as mcp } from './api/mcp.js';
 import { handle as community } from './api/community.js';
 import { handle as admin } from './api/admin.js';
+import { createNeonDatabase } from './api/_neon-db.js';
 import * as webauthn from '@simplewebauthn/server';
 import { redis } from './api/_redis.js';
 import { isForbidden, isMature } from './src/services/policy.js';
@@ -20,9 +21,9 @@ import { HANDLE } from './src/services/handle.js';
 import posterIndex from './public/poster-index.json' with { type: 'json' };
 
 const months = (now = new Date()) => [0, 1].map(back => new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - back, 1)).toISOString().slice(0, 7));
-async function redisMinutes(members) {
+async function redisMinutes(members, env) {
   if (!members.length) return {};
-  const scores = await redis(months().map(m => ['ZMSCORE', `stats:channel-minutes:${m}`, ...members]), { readOnly: true }).catch(() => []);
+  const scores = await redis(months().map(m => ['ZMSCORE', `stats:channel-minutes:${m}`, ...members]), { readOnly: true, env }).catch(() => []);
   return Object.fromEntries(members.map((m, i) => [m, scores.reduce((sum, list) => sum + (Number(list?.[i]) || 0), 0)]));
 }
 // A film's verdict is remembered for this instance; a lookup that failed (slow, down, no
@@ -75,9 +76,9 @@ const API = {
   tv: node(tv),
   halloween: node(halloween),
   event: web(event, 'POST'),
-  stats: web(stats, 'GET'),
+  stats: (request, query, env, db) => request.method === 'GET' ? stats(request, { ...env, DB: db }) : new Response(null, { status: 405 }),
   mcp: (request) => mcp(request),
-  community: (request, query, env) => community(request, { db: env.DB, flag: archiveFlag, minutes: redisMinutes, webauthn, netSalt: env.NET_SALT, now: Date.now(), human: (token, ip) => passedTurnstile(env.TURNSTILE_SECRET, token, ip) }),
+  community: (request, query, env, db) => community(request, { db, flag: archiveFlag, minutes: members => redisMinutes(members, env), webauthn, netSalt: env.NET_SALT, now: Date.now(), human: (token, ip) => passedTurnstile(env.TURNSTILE_SECRET, token, ip) }),
   admin,
 };
 
@@ -95,7 +96,7 @@ const escapeHtml = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<':
 // /c/<id>, /u/<id> and /u/<handle>: the app's page with a share preview; unlisted channels and
 // profiles are noindex. A profile with a handle names /u/<handle> as its address; a handle it
 // gave up redirects to it while held.
-async function sharePage(request, env, kind, id) {
+async function sharePage(request, env, db, kind, id) {
   const asset = await env.ASSETS.fetch(new Request(new URL('/', request.url)));
   const headers = new Headers(asset.headers);
   headers.delete('ETag');
@@ -105,8 +106,8 @@ async function sharePage(request, env, kind, id) {
   let data;
   let moved;
   try {
-    data = kind === 'c' ? await getChannel(env.DB, id) : await getProfile(env.DB, id);
-    moved = !data && kind === 'u' && await movedHandle(env.DB, id, Date.now());
+    data = kind === 'c' ? await getChannel(db, id) : await getProfile(db, id);
+    moved = !data && kind === 'u' && await movedHandle(db, id, Date.now());
   } catch {
     return new Response(html, { status: asset.status, headers });
   }
@@ -126,14 +127,16 @@ async function sharePage(request, env, kind, id) {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+    const db = env.DATABASE_URL ? createNeonDatabase(env) : env.DB;
     const share = ['GET', 'HEAD'].includes(request.method) && url.pathname.match(/^\/(c|u)\/([a-z0-9_-]+)\/?$/);
-    if (share && (ID.test(share[2]) || (share[1] === 'u' && HANDLE.test(share[2])))) return sharePage(request, env, share[1], share[2]);
+    if (share && (ID.test(share[2]) || (share[1] === 'u' && HANDLE.test(share[2])))) return sharePage(request, env, db, share[1], share[2]);
     // Handles are lower case; /u/Night-Owl goes to /u/night-owl
     const upper = url.pathname.match(/^\/u\/([A-Za-z0-9_-]+)\/?$/);
     if (upper && upper[1] !== upper[1].toLowerCase() && HANDLE.test(upper[1].toLowerCase())) return Response.redirect(new URL(`/u/${upper[1].toLowerCase()}${url.search}`, url).href, 308);
     if (/^\/[cu]\//.test(url.pathname)) return env.ASSETS.fetch(request);
     const found = route(url.pathname);
     if (!found) return new Response('Not found', { status: 404 });
+    if (['community', 'stats'].includes(found.name) && !db) return new Response('Database not configured. Set DATABASE_URL on this Worker.', { status: 503 });
     const query = { ...Object.fromEntries(url.searchParams), ...found.query };
     // Answers marked s-maxage are kept in Cloudflare's cache for that long, as Vercel's CDN did
     const cacheable = request.method === 'GET' && found.name !== 'stats' && found.name !== 'admin' && (found.name !== 'community' || url.pathname === '/api/channels');
@@ -143,7 +146,7 @@ export default {
       const hit = await caches.default.match(cacheKey);
       if (hit) return hit;
     }
-    const response = await API[found.name](request, query, env);
+    const response = await API[found.name](request, query, env, db);
     if (cacheable && response.status === 200 && /s-maxage=\d+/.test(response.headers.get('Cache-Control') || '')) {
       ctx.waitUntil(caches.default.put(cacheKey, response.clone()));
     }

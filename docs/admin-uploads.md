@@ -1,52 +1,69 @@
-# Archive.org curation dashboard
+# Neon + Upstash backend and Archive.org video curation
 
-The private admin area lives at /admin. It does not upload, copy, or modify video files. An admin pastes an Archive.org item URL or identifier; the Worker reads the item's official metadata and file list, validates it, then stores a small catalogue entry in Neon Postgres. Archive.org remains the video host.
+The private admin dashboard lives at `/admin`. It does not upload, copy, or modify video files. An admin pastes an Archive.org item URL or identifier; the Worker reads the official metadata and file list, validates it, and stores a catalogue entry in Neon Postgres. Archive.org remains the video host.
 
-## What happens when a visitor watches
+## Video playback
 
-The public listing links to /browse#<identifier>. The existing browser opens the item using its Archive.org metadata, its playable video files and the site's own player. If the browser cannot play the item's files, the existing Archive.org embedded player is used. Video bytes remain hosted by Archive.org.
+Published catalogue cards open `/browse#<identifier>`. The existing browser loads the Archive.org item and uses the site's player with Archive.org-hosted video files; it falls back to the Archive.org embedded player when required. Video bytes are never stored in Neon or Redis.
 
-## Data services
+## Database architecture
 
-- Neon Postgres stores the admin-curated Archive.org catalogue.
-- Upstash Redis is an optional cache for the public catalogue and a distributed admin-login rate limit. Without Redis, the dashboard falls back to uncached reads and per-Worker-instance rate limiting.
-- The rest of the existing application (profiles, channels, favourites, passkeys, history and community limits) still uses Cloudflare D1. This is a scoped database migration, not a claim that every legacy table has moved to Neon.
+Neon Postgres is the application's relational database for:
 
-The application uses the pooled Neon DATABASE_URL for request traffic. Keep it server-side; never prefix it with VITE_.
+- Admin video catalogue and publish state.
+- Profiles, channels, channel films, favourites and saved channels.
+- Passkeys, challenges and handle reservations.
+- Community rate limits, history and feedback.
 
-## Worker secrets
+`api/_neon-db.js` adapts the project's existing D1-style prepared-statement interface to Neon's serverless Postgres driver. It translates the SQLite-specific statements used by the app and uses Neon HTTP transactions for `batch()` operations. The legacy `migrations/*.sql` files are retained as historical SQLite/D1 schema references; the live Neon schema is defined in `neon/migrations/`.
 
-Set these secrets on the Cloudflare Worker that runs worker.js:
+## Redis
 
-- DATABASE_URL — Neon pooled PostgreSQL connection string.
-- ADMIN_PASSWORD — strong, unique dashboard password.
-- ADMIN_SESSION_SECRET — random secret of at least 32 characters.
-- UPSTASH_REDIS_REST_URL — Upstash Redis REST endpoint.
-- UPSTASH_REDIS_REST_TOKEN — Upstash Redis REST write token.
-- UPSTASH_REDIS_REST_READ_ONLY_TOKEN — optional read-only token; the write token is used for reads if omitted.
+Upstash Redis is wired as an optional shared cache and rate-limit service:
 
-Use Wrangler's `npx wrangler secret put <NAME>` command for each value. Existing KV_REST_API_* environment names remain supported by the shared Redis helper for the older analytics system.
+- Public curated-film listing cache (short TTL, invalidated after admin edits).
+- Distributed admin-login rate limiting.
+- Existing usage analytics and community lookups use the shared Redis REST helper.
 
-The admin login uses a signed HttpOnly, Secure, SameSite=Strict cookie. No Archive.org upload credentials are required.
+The repository supports `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`, and optional `UPSTASH_REDIS_REST_READ_ONLY_TOKEN`. Older `KV_REST_API_*` names remain accepted for compatibility. If Redis credentials are absent, the dashboard falls back to uncached Neon reads and per-Worker-instance login throttling; analytics requests may not be recorded until Redis is configured.
 
-## Neon database
+Create an Upstash Redis database in AWS `us-east-2` to align with the Neon project's region, then set its REST URL and tokens as Worker secrets. Do not paste tokens into source code or commit them.
 
-The production Neon project already has public.admin_videos, with unique item identifiers and indexes for newest-first and published-list queries. The migration source is neon/migrations/0001_admin_videos.sql. It was tested on a temporary Neon branch, schema-inspected and smoke-tested (draft, publish/read, and delete) before being applied to the production branch.
+## Cloudflare Worker secrets
 
-Do not apply the Neon migration to the upstream owner's D1 database.
+Configure these values on the Cloudflare Worker that serves `worker.js`:
 
-## Admin routes
+- `DATABASE_URL` — Neon pooled PostgreSQL connection string.
+- `ADMIN_PASSWORD` — a strong, unique dashboard password.
+- `ADMIN_SESSION_SECRET` — a random secret of at least 32 characters.
+- `UPSTASH_REDIS_REST_URL` — Upstash Redis REST endpoint.
+- `UPSTASH_REDIS_REST_TOKEN` — Upstash Redis write token.
+- `UPSTASH_REDIS_REST_READ_ONLY_TOKEN` — optional read-only token.
+- `STATS_TOKEN`, `NET_SALT`, and `TURNSTILE_SECRET` where the existing app features require them.
 
-- POST /api/admin/session — password login.
-- GET /api/admin/session — validate the session.
-- POST /api/admin/logout — clear the session.
-- GET /api/admin/archive-preview?item=<identifier-or-url> — preview/validate an Archive.org item.
-- GET /api/admin/videos — list curated items (admin only).
-- POST /api/admin/videos — re-fetch metadata and add an Archive.org item as a draft.
-- PATCH /api/admin/videos/:id — edit local display metadata and publish/unpublish.
-- DELETE /api/admin/videos/:id — remove the site's catalogue entry only; it never deletes the Archive.org item.
-- GET /api/uploads — public list of published items.
+Set secrets with `npx wrangler secret put <NAME>`. Keep all secrets server-side; never prefix them with `VITE_`.
 
-## Checks
+## Neon migrations
 
-Before an item can be curated, it must be an Archive.org details/embed URL or identifier, exist on Archive.org, be catalogued as mediatype=movies, contain a supported video file, and pass the existing takedown/content-policy checks. The Worker fetches and checks it again when the item is added, so the earlier preview is not trusted as the final record.
+The Neon project is `muddy-water-69331457`, default branch `br-soft-wave-bexn6hpf`, database `neondb`. The schema is created by:
+
+- `neon/migrations/0001_admin_videos.sql` — curated Archive.org video catalogue.
+- `neon/migrations/0002_legacy_app_tables.sql` — profiles, community, passkeys, history, feedback and associated indexes.
+
+Both migrations are prepared and validated on temporary Neon branches before being applied to the production branch. The production schema does not import rows from the upstream owner's D1 database; this fork gets its own isolated Neon tables.
+
+## Admin API
+
+- `POST /api/admin/session` — password login.
+- `GET /api/admin/session` — validate session.
+- `POST /api/admin/logout` — clear session.
+- `GET /api/admin/archive-preview?item=<identifier-or-url>` — preview an Archive.org item.
+- `GET /api/admin/videos` — list curated items (admin only).
+- `POST /api/admin/videos` — re-fetch metadata and add an item as a draft.
+- `PATCH /api/admin/videos/:id` — edit site-local display metadata and publish/unpublish.
+- `DELETE /api/admin/videos/:id` — remove only the site's catalogue row; the Archive.org item is untouched.
+- `GET /api/uploads` — public list of published items.
+
+## Validation
+
+Admin accepts only Archive.org details/embed URLs or item identifiers. The Worker re-fetches and validates the item on add, verifies `mediatype=movies`, checks for a supported video file, and applies the existing takedown/content policy before publishing. Drafts are hidden from the website, but Archive.org item visibility is controlled by Archive.org, not by this site's draft flag.

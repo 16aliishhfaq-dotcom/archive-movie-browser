@@ -80,7 +80,7 @@ export async function getProfile(db, idOrHandle) {
   if (!p) return null;
   const { id } = p;
   // Oldest first, so each keeps its place as channels are edited
-  const rows = (await db.prepare("SELECT id, name, status FROM channels WHERE profile_id = ? AND status != 'hidden' ORDER BY created, rowid").bind(id).all()).results;
+  const rows = (await db.prepare("SELECT id, name, status FROM channels WHERE profile_id = ? AND status != 'hidden' ORDER BY created, id").bind(id).all()).results;
   const shown = await shownFilms(db, 'c.profile_id = ?', [id]);
   const channels = rows.map(c => { const filmIds = shown.get(c.id) || []; return { ...c, films: filmIds.length, filmIds }; });
   const favourites = (await db.prepare('SELECT film_id FROM favourites WHERE profile_id = ? ORDER BY created DESC').bind(id).all()).results.map(r => r.film_id).filter(f => !isTakenDown(f));
@@ -159,7 +159,7 @@ async function setHandle(db, id, value, now) {
     ]);
     return claimed.meta.changes ? null : 'taken';
   } catch (error) {
-    if (/UNIQUE constraint/i.test(error.message)) return 'taken';
+    if (/unique constraint|duplicate key/i.test(error.message)) return 'taken';
     throw error;
   }
 }

@@ -1,4 +1,4 @@
-// Cloudflare Worker: static app + existing D1 community features + Neon admin catalogue.
+// Cloudflare Worker: static app + Neon Postgres backend + Upstash Redis.
 // Set DATABASE_URL, ADMIN_PASSWORD, ADMIN_SESSION_SECRET, UPSTASH_REDIS_REST_URL,
 // UPSTASH_REDIS_REST_TOKEN and UPSTASH_REDIS_REST_READ_ONLY_TOKEN with wrangler secret put.
 // Existing D1 community features and legacy KV_REST_API_* analytics settings remain separate.
@@ -13,9 +13,6 @@
   "routes": [
     { "pattern": "www.orphanedfilms.com", "custom_domain": true },
     { "pattern": "orphanedfilms.com", "custom_domain": true }
-  ],
-  "d1_databases": [
-    { "binding": "DB", "database_name": "orphanedfilms", "database_id": "32bb1c81-0a6d-47bc-a939-391510af2594", "migrations_dir": "migrations" }
   ],
   "assets": {
     "directory": "dist",
