@@ -4,7 +4,7 @@ const DML = /^\s*(INSERT|UPDATE|DELETE)\b/i;
 const INTEGER_COLUMNS = new Set([
   'agreed_at', 'hidden', 'created', 'updated', 'year', 'submitted_at', 'featured_at',
   'position', 'flagged', 'counter', 'until', 'at', 'count', 'n', 'channels', 'hearts',
-  'saved', 'last', 'hour', 'video_files', 'file_size', 'seconds', 'total', '__d1_change',
+  'saved', 'saves', 'profiles', 'edits', 'deleted', 'last', 'hour', 'video_files', 'file_size', 'seconds', 'total', '__d1_change',
 ]);
 
 function normalizeRows(rows) {
