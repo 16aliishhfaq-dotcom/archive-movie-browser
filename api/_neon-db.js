@@ -47,6 +47,101 @@ function ensureReturning(sql) {
   return sql + ' RETURNING 1 AS __d1_change';
 }
 
+function numberedQuery(source, params) {
+  let position = 0;
+  const query = source.replace(/\?/g, () => '
+function taggedQuery(tag, source, params) {
+  const strings = [];
+  let last = 0;
+  const matcher = /\?/g;
+  let match;
+  while ((match = matcher.exec(source))) {
+    strings.push(source.slice(last, match.index));
+    last = matcher.lastIndex;
+  }
+  strings.push(source.slice(last));
+  strings.raw = strings.slice();
+  if (strings.length !== params.length + 1) {
+    throw new Error('Neon adapter: SQL placeholder count does not match bound values.');
+  }
+  return tag(strings, ...params);
+}
+
+class NeonStatement {
+  constructor(sql, source, params = []) {
+    this.sql = sql;
+    this.source = source;
+    this.params = params;
+  }
+
+  bind(...params) {
+    this.params = params;
+    return this;
+  }
+
+  get queryText() {
+    return ensureReturning(translateSql(this.source));
+  }
+
+  async all() {
+    const rows = normalizeRows(await this.sql.query(numberedQuery(this.queryText, this.params), this.params));
+    return { results: rows, success: true, meta: { changes: rows.length } };
+  }
+
+  async first() {
+    const { results } = await this.all();
+    return results[0] ?? null;
+  }
+
+  async run() {
+    const result = await this.sql.query(numberedQuery(this.queryText, this.params), this.params, { fullResults: true });
+    const rows = normalizeRows(result?.rows || []);
+    return {
+      success: true,
+      results: rows,
+      meta: {
+        changes: Number(result?.rowCount ?? rows.length),
+        last_row_id: null,
+      },
+    };
+  }
+
+  asTransactionQuery(txn) {
+    return taggedQuery(txn, this.queryText, this.params);
+  }
+}
+
+export function createNeonDatabaseAdapter(sql) {
+  return {
+    prepare(source) {
+      return new NeonStatement(sql, source);
+    },
+    async batch(statements) {
+      const results = await sql.transaction(txn => statements.map(statement => {
+        if (!(statement instanceof NeonStatement)) {
+          throw new TypeError('Neon adapter batch expects statements prepared by this database instance.');
+        }
+        return statement.asTransactionQuery(txn);
+      }));
+      return results.map(rawRows => {
+        const rows = normalizeRows(rawRows);
+        return { results: rows, success: true, meta: { changes: rows.length, last_row_id: null } };
+      });
+    },
+  };
+}
+
+export function createNeonDatabase(env) {
+  if (!env?.DATABASE_URL) throw new Error('Neon is not configured. Set the pooled DATABASE_URL Worker secret.');
+  return createNeonDatabaseAdapter(neon(env.DATABASE_URL));
+}
+ + (++position));
+  if (position !== params.length) {
+    throw new Error('Neon adapter: SQL placeholder count does not match bound values.');
+  }
+  return query;
+}
+
 function taggedQuery(tag, source, params) {
   const strings = [];
   let last = 0;

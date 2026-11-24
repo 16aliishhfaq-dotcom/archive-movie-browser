@@ -21,6 +21,7 @@ test('adds RETURNING for D1-style change counts without changing existing RETURN
   assert.equal(db.prepare('DELETE FROM challenges WHERE id = ? RETURNING kind').queryText, 'DELETE FROM challenges WHERE id = ? RETURNING kind');
   assert.equal(db.prepare('SELECT * FROM profiles WHERE id = ?').queryText, 'SELECT * FROM profiles WHERE id = ?');
   assert.throws(() => db.prepare('SELECT * FROM profiles WHERE id = ?').asTransactionQuery(makeMockSql()), /placeholder count/);
+  assert.throws(() => db.prepare('SELECT * FROM profiles WHERE id = ?').all(), /placeholder count/);
 });
 
 function makeMockSql() {
@@ -45,7 +46,10 @@ test('binds parameters and returns D1-compatible first/all/run results', async (
   const db = createNeonDatabaseAdapter(sql);
   const statement = db.prepare('SELECT id FROM profiles WHERE id = ?').bind('profile-1');
   assert.equal((await statement.first()).id, 'profile-1');
+  assert.equal(sql.lastQuery, 'SELECT id FROM profiles WHERE id = $1');
+  assert.deepEqual(sql.lastValues, ['profile-1']);
   assert.equal((await statement.all()).results.length, 1);
+  assert.equal(sql.lastQuery, 'SELECT id FROM profiles WHERE id = $1');
   const run = await db.prepare('UPDATE profiles SET hidden = ? WHERE id = ?').bind(1, 'profile-1').run();
   assert.equal(run.meta.changes, 1);
   assert.match(sql.lastQuery || '', /UPDATE profiles SET hidden = \$1 WHERE id = \$2 RETURNING 1 AS __d1_change/);
