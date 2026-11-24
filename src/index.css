@@ -36,6 +36,7 @@
   .panel { @apply bg-panel border border-line rounded-lg; }
   .field { @apply flex items-center gap-2.5 bg-panel border border-line rounded-full h-11 px-4 focus-within:border-bone; }
   .field input { @apply bg-transparent w-full text-sm text-bone placeholder:text-dim focus:outline-none; }
+  .admin-input { @apply block w-full h-11 px-3 rounded-lg bg-ink border border-line text-bone text-sm placeholder:text-dim focus:outline-none focus:border-signal; }
   .film-frame { @apply relative block aspect-[2/3] rounded-md overflow-hidden border border-white/[0.06] transition-colors; }
 
   /* Page rhythm: one gutter, one section gap */

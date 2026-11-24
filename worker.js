@@ -10,6 +10,7 @@ import { POST as event } from './api/event.js';
 import { GET as stats } from './api/stats.js';
 import { handle as mcp } from './api/mcp.js';
 import { handle as community } from './api/community.js';
+import { handle as admin } from './api/admin.js';
 import * as webauthn from '@simplewebauthn/server';
 import { redis } from './api/_redis.js';
 import { isForbidden, isMature } from './src/services/policy.js';
@@ -77,6 +78,7 @@ const API = {
   stats: web(stats, 'GET'),
   mcp: (request) => mcp(request),
   community: (request, query, env) => community(request, { db: env.DB, flag: archiveFlag, minutes: redisMinutes, webauthn, netSalt: env.NET_SALT, now: Date.now(), human: (token, ip) => passedTurnstile(env.TURNSTILE_SECRET, token, ip) }),
+  admin,
 };
 
 // The share card's picture: the poster of the first film that has one
@@ -134,7 +136,7 @@ export default {
     if (!found) return new Response('Not found', { status: 404 });
     const query = { ...Object.fromEntries(url.searchParams), ...found.query };
     // Answers marked s-maxage are kept in Cloudflare's cache for that long, as Vercel's CDN did
-    const cacheable = request.method === 'GET' && found.name !== 'stats' && (found.name !== 'community' || url.pathname === '/api/channels');
+    const cacheable = request.method === 'GET' && found.name !== 'stats' && found.name !== 'admin' && (found.name !== 'community' || url.pathname === '/api/channels');
     // The channel listing ignores its query string, so it is cached under the bare path
     const cacheKey = found.name === 'community' ? new Request(new URL(url.pathname, request.url)) : request;
     if (cacheable) {
