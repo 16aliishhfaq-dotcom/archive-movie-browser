@@ -15,11 +15,26 @@ const fromB64u = text => Uint8Array.from(atob(text.replace(/-/g, '+').replace(/_
 // localhost origins are accepted only when the request itself was made to localhost
 export function rpFor(origin, requestUrl) {
   let url;
-  try { url = new URL(origin); } catch { return null; }
-  let host = '';
-  try { host = new URL(requestUrl).hostname; } catch { /* no request url: no localhost */ }
-  if (url.protocol === 'https:' && (url.host === 'www.orphanedfilms.com' || url.host === 'orphanedfilms.com')) return { rpID: 'orphanedfilms.com', origin: url.origin };
-  if (url.protocol === 'http:' && url.hostname === 'localhost' && (host === 'localhost' || host === '127.0.0.1')) return { rpID: 'localhost', origin: url.origin };
+  let request;
+  try {
+    url = new URL(origin);
+    request = new URL(requestUrl);
+  } catch {
+    return null;
+  }
+
+  // Accept only the exact HTTPS origin that received the request. This supports
+  // account-owned workers.dev hosts and later custom domains without weakening
+  // the WebAuthn origin check.
+  if (url.protocol === 'https:' && url.host === request.host) {
+    const rpID = url.hostname === 'www.orphanedfilms.com' ? 'orphanedfilms.com' : url.hostname;
+    return { rpID, origin: url.origin };
+  }
+
+  if (url.protocol === 'http:' && url.hostname === 'localhost' &&
+      (request.hostname === 'localhost' || request.hostname === '127.0.0.1')) {
+    return { rpID: 'localhost', origin: url.origin };
+  }
   return null;
 }
 

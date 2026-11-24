@@ -1,19 +1,15 @@
 // Cloudflare Worker: static app + Neon Postgres backend + Upstash Redis.
 // Set DATABASE_URL, ADMIN_PASSWORD, ADMIN_SESSION_SECRET, UPSTASH_REDIS_REST_URL,
 // UPSTASH_REDIS_REST_TOKEN and UPSTASH_REDIS_REST_READ_ONLY_TOKEN with wrangler secret put.
-// Existing D1 community features and legacy KV_REST_API_* analytics settings remain separate.
+// Legacy KV_REST_API_* Redis environment names remain supported for analytics.
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "orphanedfilms",
+  "name": "archive-movie-browser",
   "main": "worker.js",
   "compatibility_date": "2026-09-30",
   "compatibility_flags": ["nodejs_compat"],
-  "workers_dev": false,
+  "workers_dev": true,
   "preview_urls": false,
-  "routes": [
-    { "pattern": "www.orphanedfilms.com", "custom_domain": true },
-    { "pattern": "orphanedfilms.com", "custom_domain": true }
-  ],
   "assets": {
     "directory": "dist",
     "binding": "ASSETS",

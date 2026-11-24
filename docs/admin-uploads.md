@@ -41,7 +41,7 @@ Configure these values on the Cloudflare Worker that serves `worker.js`:
 - `UPSTASH_REDIS_REST_READ_ONLY_TOKEN` — optional read-only token.
 - `STATS_TOKEN`, `NET_SALT`, and `TURNSTILE_SECRET` where the existing app features require them.
 
-Set secrets with `npx wrangler secret put <NAME>`. Keep all secrets server-side; never prefix them with `VITE_`.
+Set secrets with `npx wrangler secret put <NAME>`. Keep all secrets server-side; never prefix them with `VITE_`. The Worker is configured for its account-owned `workers.dev` URL until you attach a domain you own; upstream `orphanedfilms.com` routes are deliberately not carried over.
 
 ## Neon migrations
 
